@@ -51,7 +51,7 @@ dissas(uint8_t *rom, size_t len)
                 printf("%02x ", rom[i+1]);
                 printf("%02x ", rom[i+2]);
                 printf("\t");
-                printf("LXI B #0x%02x%02x", rom[i+1], rom[i+2]);
+                printf("LXI B #0x%02x%02x", rom[i+2], rom[i+1]);
                 i += 3;
                 break;
 
@@ -167,7 +167,7 @@ dissas(uint8_t *rom, size_t len)
                 printf("%02x ", rom[i+1]);
                 printf("%02x ", rom[i+2]);
                 printf("\t");
-                printf("LXI D #0x%02x%02x", rom[i+1], rom[i+2]);
+                printf("LXI D #0x%02x%02x", rom[i+2], rom[i+1]);
                 i += 3;
                 break;
 
@@ -283,7 +283,7 @@ dissas(uint8_t *rom, size_t len)
                 printf("%02x ", rom[i+1]);
                 printf("%02x ", rom[i+2]);
                 printf("\t");
-                printf("LXI H #0x%02x%02x", rom[i+1], rom[i+2]);
+                printf("LXI H #0x%02x%02x", rom[i+2], rom[i+1]);
                 i += 3;
                 break;
 
@@ -403,7 +403,7 @@ dissas(uint8_t *rom, size_t len)
                 printf("%02x ", rom[i+1]);
                 printf("%02x ", rom[i+2]);
                 printf("\t");
-                printf("LXI SP #0x%02x%02x", rom[i+1], rom[i+2]);
+                printf("LXI SP #0x%02x%02x", rom[i+2], rom[i+1]);
                 i += 3;
                 break;
 
