@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdint.h>
 
-static size_t
+#include "dissas.h"
+
+size_t
 read_rom(uint8_t **buffer, char *rom_filename)
 {
     FILE *fileptr;
@@ -27,7 +28,7 @@ read_rom(uint8_t **buffer, char *rom_filename)
     return filelen;
 }
 
-static void
+void
 dissas(uint8_t *rom, size_t len)
 {
     size_t i = 0;
@@ -1899,16 +1900,4 @@ dissas(uint8_t *rom, size_t len)
         }
         printf("\n");
     }
-}
-
-int 
-main() {
-    size_t  rom_len;
-    uint8_t *rom;
-
-    rom_len = read_rom(&rom, "./invaders/invaders.full");
-
-    dissas(rom, rom_len);
-
-    return 0;
 }
