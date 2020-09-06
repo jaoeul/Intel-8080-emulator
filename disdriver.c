@@ -8,8 +8,9 @@ main(int argc, char **argv)
 {
     uint8_t *rom;
     size_t rom_sz = read_rom(&rom, argv[1]);
-    dissas(rom, rom_sz);
-    free(rom);
+
+    dissas_rom(rom, rom_sz);
+
     return 0;
 }
 
