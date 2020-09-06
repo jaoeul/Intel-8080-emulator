@@ -11,6 +11,8 @@ main(int argc, char **argv)
 
     dissas_rom(rom, rom_sz);
 
+    free(rom);
+
     return 0;
 }
 

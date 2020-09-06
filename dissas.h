@@ -3,7 +3,7 @@
 
 #include "intel8080.h"
 
-size_t read_rom(uint8_t **buffer, char *rom_filename);
+size_t read_rom(uint8_t **buffer, char *rom_filename, int offset);
 
 void dissas_curr_inst(State *state);
 

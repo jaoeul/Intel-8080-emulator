@@ -109,9 +109,15 @@ emulate(State *state)
             break;
 
         // MVI B, D8
-        case 0x6:
+        case 0x06:
             state->b = opcode[1];
             state->pc++;
+            break;
+
+        // MVI C, D8
+        case 0x0e:
+            state->c   = opcode[1];
+            state->pc += 2;
             break;
 
         // LXI D, D16
@@ -126,9 +132,8 @@ emulate(State *state)
         case 0x13:
             state->e++;
             // If e overflows into D, inc D
-            if (state->e == 0) {
+            if (state->e == 0)
                 state->d++;
-            }
             state->pc++;
             break;
 
@@ -150,9 +155,8 @@ emulate(State *state)
         case 0x23:
             state->l++;
             // If e overflows into D, inc D
-            if (state->l == 0) {
+            if (state->l == 0)
                 state->h++;
-            }
             state->pc++;
             break;
 
@@ -260,15 +264,51 @@ emulate(State *state)
             state->pc = (opcode[2]) << 8 | opcode[1];
             break;
 
-       // RET
-       case 0xc9:
+        // ADI D8
+        case 0xc6:
+            {
+            uint16_t res = (uint16_t) state->a + (uint16_t) opcode[1];
+
+            state->cc.cy = (res > 0xff);
+            state->cc.z  = ((res & 0xff) == 0);
+            state->cc.s  = ((res & 0x80) != 0);
+            state->cc.p  = parity2(res, 8);
+
+            state->a     = (uint8_t) res;
+            state->pc   += 2;
+            }
+            break;
+
+        // RET
+        case 0xc9:
             state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
             state->sp += 3;
             break;
 
-       // CALL addr
-       case 0xcd:
+        // JZ addr
+        case 0xca:
+            if (state->cc.z == 1)
+                state->pc = (opcode[2] << 8) | opcode[1];
+            else
+                state->pc += 3;
+            break;
 
+        // ACI D8
+        case 0xce:
+            {
+            uint16_t res = ((uint16_t) state->a + (uint16_t) opcode[1]) + state->cc.cy;
+            state->cc.z  = ((res & 0xff) == 0);
+            state->cc.s  = ((res & 0x80) != 0);
+            state->cc.cy = (res > 0xff);
+            state->cc.p  = parity2(res, 8);
+            state->a     = (uint8_t) res;
+            state->pc   += 2;
+            }
+            break;
+
+
+        // CALL addr
+        case 0xcd:
 // Print to console. For testing
 #ifdef FOR_CPUDIAG
             if (((opcode[2] << 8) | opcode[1]) == 5) {
@@ -278,10 +318,14 @@ emulate(State *state)
                     while (*str != '$')
                         printf("%c", *str++);
                     printf("\n");
+                    exit(1);
                 } else if (state->c == 2) {
                     printf("Print char routine called\n");
                 }
+            } else if ((opcode[2] << 8 | opcode[1]) == 0) {
+                exit(0);
             }
+            else
 #endif
             {
             // Push ret addr onto stack
@@ -296,13 +340,117 @@ emulate(State *state)
             }
             break;
 
+        // JNC addr
+        case 0xd2:
+            if (state->cc.cy == 0)
+                state->pc = (opcode[2] << 8) | opcode[1];
+            else
+                state->pc += 3;
+            break;
+
+        // PUSH D
+        // PUSH register pair DE
+        case 0xd5:
+            state->memory[state->sp-1] = state->d;
+            state->memory[state->sp-2] = state->e;
+            state->sp = state->sp - 2;
+            state->pc++;
+            break;
+
+        // SUI D8
+        case 0xd6:
+            {
+            uint8_t res  = state->a - opcode[1];
+            state->cc.cy = (state->a < opcode[1]);
+            state->cc.z  = (res == 0);
+            state->cc.s  = ((res & 0x80) != 0);
+            state->cc.p  = (parity2(res, 8));
+            state->a     = res;
+            state->pc   += 2;
+            }
+            break;
+
+        // JC
+        case 0xda:
+            if (state->cc.cy == 1)
+                state->pc = (opcode[2] << 8) | opcode[1];
+            else
+                state->pc += 3;
+            break;
+
+       // JPO addr
+       case 0xe2:
+            if (state->cc.p == 0)
+                state->pc = (opcode[2] << 8) | opcode[1];
+            else
+                state->pc += 3;
+            break;
+
+       // ANI D8
+       case 0xe6:
+            state->a     = state->a & opcode[1];
+            state->cc.cy = 0;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->pc   += 2;
+            break;
+
+       // JPE addr
+       case 0xea:
+            if (state->cc.p == 1)
+                state->pc = (opcode[2] << 8) | opcode[1];
+            else
+                state->pc += 3;
+            break;
+
+       // XCHG
+       case 0xeb:
+            {
+            uint8_t tmp1 = state->d;
+            uint8_t tmp2 = state->e;
+            state->d     = state->h;
+            state->e     = state->l;
+            state->h     = tmp1;
+            state->l     = tmp2;
+            state->pc++;
+            }
+            break;
+
+       // JP addr
+       case 0xf2:
+            if (state->cc.s == 0)
+                state->pc = (opcode[2] << 8) | opcode[1];
+            else
+                state->pc += 3;
+            break;
+
+       // JM addr
+       case 0xfa:
+            if (state->cc.s == 1)
+                state->pc = (opcode[2] << 8) | opcode[1];
+            else
+                state->pc += 3;
+            break;
+
         // EI
         // Enable interrupts
         case 0xfb:
             state->int_enable = 1;
             state->pc++;
             break;
-            
+
+        // CPI D8
+        case 0xfe:
+            {
+            uint16_t res = state->a - opcode[1];
+            state->cc.z  = (state->a == opcode[1]); // 1 if accumulator and immidiate are equal
+            state->cc.s  = ((res & 0x80) != 0);
+            state->cc.cy = (res > 0xff);
+            state->cc.p  = parity2(res, 8);
+            state->pc   += 2;
+            }
+            break;
 
         default:
             unimp(state);
@@ -315,7 +463,8 @@ main()
 {
     State *state = calloc(sizeof state, 1);
 
-    state->memory_size = read_rom(&state->memory, "./invaders/cpudiag.bin");
+    // Read rom with an offset of 0x100 bytes
+    state->memory_size = read_rom(&state->memory, "./invaders/test.com", 0x100);
 
     // For testing
     // Insert a JMP 0x100 as first instruction
@@ -323,7 +472,7 @@ main()
     state->memory[1] = 0;
     state->memory[2] = 0x01;
 
-    // Fix stackt pointer from 0x6ad to 0x7ad
+    //// Fix stackt pointer from 0x6ad to 0x7ad
     state->memory[368] = 0x7;
 
     // Skip DAA test

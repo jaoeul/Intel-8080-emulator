@@ -5,8 +5,11 @@
 #include "dissas.h"
 #include "intel8080.h"
 
+/*  Read file into buffer
+ *  Provide offset to insert n amount of NOPS before the ROM
+ *  Returns size off file + offset */
 size_t
-read_rom(uint8_t **buffer, char *rom_filename)
+read_rom(uint8_t **buffer, char *rom_filename, int offset)
 {
     FILE *fileptr;
     size_t filelen;
@@ -16,13 +19,13 @@ read_rom(uint8_t **buffer, char *rom_filename)
     filelen = ftell(fileptr);
     rewind(fileptr);
 
-    *buffer = (uint8_t*) calloc(sizeof(uint8_t), filelen);
+    *buffer = (uint8_t*) calloc(sizeof(uint8_t), filelen + offset);
 
     if (*buffer == NULL) {
         printf("*buffer is NULL\n");
     }
 
-    fread(*buffer, filelen, 1, fileptr);
+    fread(*buffer + offset, filelen, 1, fileptr);
 
     fclose(fileptr);
 
