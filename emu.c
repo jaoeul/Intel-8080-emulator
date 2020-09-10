@@ -12,7 +12,7 @@ uint64_t count = 0;
 static void
 print_state(State *state)
 {
-    printf("STATE:\n");
+    printf("REGISTERS:\n");
     printf("sp: %d\n", state->sp);
     printf("pc: %d\n", state->pc);
     printf("a: %d\n", state->a);
@@ -22,6 +22,13 @@ print_state(State *state)
     printf("e: %d\n", state->e);
     printf("h: %d\n", state->h);
     printf("l: %d\n", state->l);
+    printf("FLAGS:\n");
+    printf("cy: %d\n", state->cc.cy);
+    printf("z: %d\n", state->cc.z);
+    printf("s: %d\n", state->cc.s);
+    printf("p: %d\n", state->cc.p);
+    printf("ac: %d\n", state->cc.ac);
+    printf("pad: %d\n", state->cc.pad);
     printf("mem: %p\n", state->memory);
     printf("mem sz: %ld\n", state->memory_size);
     printf("int enable: %d\n", state->int_enable);
@@ -71,6 +78,8 @@ int parity2(int x, int size)
 static void
 emulate(State *state)
 {
+    printf("%ld\t", count);
+
     // Dissasemble current instruction
     dissas_curr_inst(state);
 
@@ -242,11 +251,15 @@ emulate(State *state)
             state->pc++;
             break;
 
-        // OUT D8
-        // Write data from acumulator to output device D8
-        case 0xd3:
-            printf("Writing 0x%02x to output device %02x\n", state->a, opcode[1]);
-            state->pc += 2;
+       // RNZ
+       case 0xc0:
+            if (state->cc.z == 0) {
+                state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+                state->sp += 3;
+            }
+            else {
+                state->pc++;
+            }
             break;
 
         // JNZ addr
@@ -264,6 +277,26 @@ emulate(State *state)
             state->pc = (opcode[2]) << 8 | opcode[1];
             break;
 
+        // CNZ addr
+        case 0xc4:
+            {
+                if (state->cc.z == 0) {
+                    // Push ret addr onto stack
+                    uint16_t ret_addr = state->pc + 2;
+                    // Push MSB first
+                    state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
+                    state->memory[state->sp-2] = (ret_addr & 0xff);
+                    // Stack grows towards lower addresses
+                    state->sp = state->sp - 2;
+                    // Transfer execution to subrutine
+                    state->pc = (opcode[2] << 8) | opcode[1];
+                    }
+                else {
+                    state->pc +=3;
+                }
+            }
+            break;
+
         // ADI D8
         case 0xc6:
             {
@@ -279,6 +312,17 @@ emulate(State *state)
             }
             break;
 
+       // RZ
+       case 0xc8:
+            if (state->cc.z == 1) {
+                state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+                state->sp += 3;
+            }
+            else {
+                state->pc++;
+            }
+            break;
+
         // RET
         case 0xc9:
             state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
@@ -291,6 +335,26 @@ emulate(State *state)
                 state->pc = (opcode[2] << 8) | opcode[1];
             else
                 state->pc += 3;
+            break;
+
+        // CZ addr
+        case 0xcc:
+            {
+                if (state->cc.z == 1) {
+                    // Push ret addr onto stack
+                    uint16_t ret_addr = state->pc + 2;
+                    // Push MSB first
+                    state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
+                    state->memory[state->sp-2] = (ret_addr & 0xff);
+                    // Stack grows towards lower addresses
+                    state->sp = state->sp - 2;
+                    // Transfer execution to subrutine
+                    state->pc = (opcode[2] << 8) | opcode[1];
+                    }
+                else {
+                    state->pc +=3;
+                }
+            }
             break;
 
         // ACI D8
@@ -318,6 +382,7 @@ emulate(State *state)
                     while (*str != '$')
                         printf("%c", *str++);
                     printf("\n");
+                    print_state(state);
                     exit(1);
                 } else if (state->c == 2) {
                     printf("Print char routine called\n");
@@ -340,12 +405,50 @@ emulate(State *state)
             }
             break;
 
+       // RNC
+       case 0xd0:
+            if (state->cc.cy == 0) {
+                state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+                state->sp += 3;
+            }
+            else {
+                state->pc++;
+            }
+            break;
+
         // JNC addr
         case 0xd2:
             if (state->cc.cy == 0)
                 state->pc = (opcode[2] << 8) | opcode[1];
             else
                 state->pc += 3;
+            break;
+
+        // OUT D8
+        // Write data from acumulator to output device D8
+        case 0xd3:
+            printf("Writing 0x%02x to output device %02x\n", state->a, opcode[1]);
+            state->pc += 2;
+            break;
+
+        // CNC addr
+        case 0xd4:
+            {
+                if (state->cc.cy == 0) {
+                    // Push ret addr onto stack
+                    uint16_t ret_addr = state->pc + 2;
+                    // Push MSB first
+                    state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
+                    state->memory[state->sp-2] = (ret_addr & 0xff);
+                    // Stack grows towards lower addresses
+                    state->sp = state->sp - 2;
+                    // Transfer execution to subrutine
+                    state->pc = (opcode[2] << 8) | opcode[1];
+                    }
+                else {
+                    state->pc +=3;
+                }
+            }
             break;
 
         // PUSH D
@@ -360,13 +463,24 @@ emulate(State *state)
         // SUI D8
         case 0xd6:
             {
-            uint8_t res  = state->a - opcode[1];
-            state->cc.cy = (state->a < opcode[1]);
-            state->cc.z  = (res == 0);
-            state->cc.s  = ((res & 0x80) != 0);
-            state->cc.p  = (parity2(res, 8));
-            state->a     = res;
-            state->pc   += 2;
+                uint8_t res  = state->a - opcode[1];
+                state->cc.cy = (state->a < opcode[1]);
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->a     = res;
+                state->pc   += 2;
+            }
+            break;
+
+       // RC
+       case 0xd8:
+            if (state->cc.cy == 1) {
+                state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+                state->sp += 3;
+            }
+            else {
+                state->pc++;
             }
             break;
 
@@ -378,6 +492,50 @@ emulate(State *state)
                 state->pc += 3;
             break;
 
+        // CC addr
+        case 0xdc:
+            {
+                if (state->cc.cy == 1) {
+                    // Push ret addr onto stack
+                    uint16_t ret_addr = state->pc + 2;
+                    // Push MSB first
+                    state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
+                    state->memory[state->sp-2] = (ret_addr & 0xff);
+                    // Stack grows towards lower addresses
+                    state->sp = state->sp - 2;
+                    // Transfer execution to subrutine
+                    state->pc = (opcode[2] << 8) | opcode[1];
+                    }
+                else {
+                    state->pc +=3;
+                }
+            }
+            break;
+
+        // SBI d8
+        case 0xde:
+            {
+                uint8_t res  = state->a - (opcode[1] + state->cc.cy);
+                state->cc.cy = (state->a < (opcode[1] + state->cc.cy));
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->a     = res;
+                state->pc += 2;
+            }
+            break;
+
+       // RPO
+       case 0xe0:
+            if (state->cc.p == 0) {
+                state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+                state->sp += 3;
+            }
+            else {
+                state->pc++;
+            }
+            break;
+
        // JPO addr
        case 0xe2:
             if (state->cc.p == 0)
@@ -385,6 +543,27 @@ emulate(State *state)
             else
                 state->pc += 3;
             break;
+
+        // CPO addr
+        case 0xe4:
+            {
+                if (state->cc.p == 0) {
+                    // Push ret addr onto stack
+                    uint16_t ret_addr = state->pc + 2;
+                    // Push MSB first
+                    state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
+                    state->memory[state->sp-2] = (ret_addr & 0xff);
+                    // Stack grows towards lower addresses
+                    state->sp = state->sp - 2;
+                    // Transfer execution to subrutine
+                    state->pc = (opcode[2] << 8) | opcode[1];
+                    }
+                else {
+                    state->pc +=3;
+                }
+            }
+            break;
+
 
        // ANI D8
        case 0xe6:
@@ -396,12 +575,43 @@ emulate(State *state)
             state->pc   += 2;
             break;
 
+       // RPE
+       case 0xe8:
+            if (state->cc.p == 1) {
+                state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+                state->sp += 3;
+            }
+            else {
+                state->pc++;
+            }
+            break;
+
        // JPE addr
        case 0xea:
             if (state->cc.p == 1)
                 state->pc = (opcode[2] << 8) | opcode[1];
             else
                 state->pc += 3;
+            break;
+
+        //CPE addr
+        case 0xec:
+            {
+                if (state->cc.p == 1) {
+                    // Push ret addr onto stack
+                    uint16_t ret_addr = state->pc + 2;
+                    // Push MSB first
+                    state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
+                    state->memory[state->sp-2] = (ret_addr & 0xff);
+                    // Stack grows towards lower addresses
+                    state->sp = state->sp - 2;
+                    // Transfer execution to subrutine
+                    state->pc = (opcode[2] << 8) | opcode[1];
+                    }
+                else {
+                    state->pc +=3;
+                }
+            }
             break;
 
        // XCHG
@@ -417,12 +627,80 @@ emulate(State *state)
             }
             break;
 
+       // XRI D8
+       case 0xee:
+            {
+            uint8_t res  = state->a ^ opcode[1];
+            state->cc.cy = 0;
+            state->cc.z  = (res == 0);
+            state->cc.s  = ((res & 0x80) != 0);
+            state->cc.p  = (parity2(res, 8));
+            state->a     = res;
+            state->pc += 2;
+            }
+            break;
+
+       // RP
+       case 0xf0:
+            if (state->cc.s == 0) {
+                state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+                state->sp += 3;
+            }
+            else {
+                state->pc++;
+            }
+            break;
+
        // JP addr
        case 0xf2:
             if (state->cc.s == 0)
                 state->pc = (opcode[2] << 8) | opcode[1];
             else
                 state->pc += 3;
+            break;
+
+        // CP addr
+        case 0xf4:
+            {
+                if (state->cc.s == 0) {
+                    // Push ret addr onto stack
+                    uint16_t ret_addr = state->pc + 2;
+                    // Push MSB first
+                    state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
+                    state->memory[state->sp-2] = (ret_addr & 0xff);
+                    // Stack grows towards lower addresses
+                    state->sp = state->sp - 2;
+                    // Transfer execution to subrutine
+                    state->pc = (opcode[2] << 8) | opcode[1];
+                    }
+                else {
+                    state->pc +=3;
+                }
+            }
+            break;
+
+       // ORI D8
+       case 0xf6:
+            {
+            uint8_t res  = state->a | opcode[1];
+            state->cc.cy = 0;
+            state->cc.z  = (res == 0);
+            state->cc.s  = ((res & 0x80) != 0);
+            state->cc.p  = (parity2(res, 8));
+            state->a     = res;
+            state->pc += 2;
+            }
+            break;
+
+       // RM
+       case 0xf8:
+            if (state->cc.s == 1) {
+                state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+                state->sp += 3;
+            }
+            else {
+                state->pc++;
+            }
             break;
 
        // JM addr
@@ -438,6 +716,26 @@ emulate(State *state)
         case 0xfb:
             state->int_enable = 1;
             state->pc++;
+            break;
+
+        // CM addr
+        case 0xfc:
+            {
+                if (state->cc.s == 1) {
+                    // Push ret addr onto stack
+                    uint16_t ret_addr = state->pc + 2;
+                    // Push MSB first
+                    state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
+                    state->memory[state->sp-2] = (ret_addr & 0xff);
+                    // Stack grows towards lower addresses
+                    state->sp = state->sp - 2;
+                    // Transfer execution to subrutine
+                    state->pc = (opcode[2] << 8) | opcode[1];
+                    }
+                else {
+                    state->pc +=3;
+                }
+            }
             break;
 
         // CPI D8
