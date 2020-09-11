@@ -14,7 +14,8 @@ print_state(State *state)
 {
     printf("REGISTERS:\n");
     printf("sp: %d\n", state->sp);
-    printf("pc: %d\n", state->pc);
+    printf("pc: %d Next inst: ", state->pc);
+    dissas_curr_inst(state);
     printf("a: %d\n", state->a);
     printf("b: %d\n", state->b);
     printf("c: %d\n", state->c);
@@ -24,9 +25,9 @@ print_state(State *state)
     printf("l: %d\n", state->l);
     printf("FLAGS:\n");
     printf("cy: %d\n", state->cc.cy);
-    printf("z: %d\n", state->cc.z);
-    printf("s: %d\n", state->cc.s);
     printf("p: %d\n", state->cc.p);
+    printf("s: %d\n", state->cc.s);
+    printf("z: %d\n", state->cc.z);
     printf("ac: %d\n", state->cc.ac);
     printf("pad: %d\n", state->cc.pad);
     printf("mem: %p\n", state->memory);
@@ -79,6 +80,7 @@ static void
 emulate(State *state)
 {
     printf("%ld\t", count);
+    count++;
 
     // Dissasemble current instruction
     dissas_curr_inst(state);
@@ -86,8 +88,6 @@ emulate(State *state)
     // Use addres of opcode instead of value to
     // access data / addreses following it easily
     uint8_t *opcode = &state->memory[state->pc];
-
-    count++;
 
     switch (*opcode) {
 
@@ -104,16 +104,25 @@ emulate(State *state)
             state->pc += 3;
             break;
 
+        // INX B
+        case 0x03:
+            state->c++;
+            if (state->c == 0) {
+                state->b++;
+            }
+            state->pc++;
+            break;
+
         // DCR b
         case 0x05:
             {
-            uint8_t res = state->b - 1;
+                uint8_t res = state->b - 1;
 
-            state->cc.z = (res == 0);
-            state->cc.s = ((res & 0x80) != 0);
-            state->cc.p = parity2(res, 8);
-            state->b = res;
-            state->pc++;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->b = res;
+                state->pc++;
             }
             break;
 
@@ -121,6 +130,19 @@ emulate(State *state)
         case 0x06:
             state->b = opcode[1];
             state->pc++;
+            break;
+
+        // DCR C
+        case 0x0d:
+            {
+                uint8_t res = state->c - 1;
+
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->b = res;
+                state->pc++;
+            }
             break;
 
         // MVI C, D8
@@ -150,13 +172,13 @@ emulate(State *state)
         // Double add HL + DE
         case 0x19:
             {
-            uint32_t hl = (state->h << 8) | state->l;
-            uint32_t de = (state->d << 8) | state->e;
-            uint32_t res = hl + de;
-            state->h = (res & 0xff00) >> 8;           // Two highest bytes of res
-            state->l = res & 0xff;                    // Two lowest bytes of res
-            state->cc.cy = ((res & 0xffff0000) != 0); // Set carry flag if res overflows 32 bit int
-            state->pc++;
+                uint32_t hl = (state->h << 8) | state->l;
+                uint32_t de = (state->d << 8) | state->e;
+                uint32_t res = hl + de;
+                state->h = (res & 0xff00) >> 8;           // Two highest bytes of res
+                state->l = res & 0xff;                    // Two lowest bytes of res
+                state->cc.cy = ((res & 0xffff0000) != 0); // Set carry flag if res overflows 32 bit int
+                state->pc++;
             }
             break;
 
@@ -173,10 +195,10 @@ emulate(State *state)
         // Load value in address D+E into register A
         case 0x1a:
             {
-            uint16_t target_addr = (state->d << 8) | state->e;
-            state->a = state->memory[target_addr];
+                uint16_t target_addr = (state->d << 8) | state->e;
+                state->a = state->memory[target_addr];
+                state->pc++;
             }
-            state->pc++;
             break;
 
         // LXI H, D16
@@ -196,11 +218,29 @@ emulate(State *state)
         // Replace value of accumulater at direct address
         case 0x32:
             {
-            uint16_t target_addr = (opcode[2] << 8) | opcode[1];
-            state->memory[target_addr] = state->a;
-            state->pc += 3;
+                uint16_t target_addr = (opcode[2] << 8) | opcode[1];
+                state->memory[target_addr] = state->a;
+                state->pc += 3;
             }
             break;
+
+
+        // LDA addr
+        case 0x3a:
+            {
+                uint16_t target_addr = (opcode[2] << 8) | opcode[1];
+                state->a   = state->memory[target_addr];
+                state->pc += 3;
+            }
+            break;
+
+        // INR A
+        case 0x3c:
+            state->a++;
+            state->cc.z = (state->a == 0);
+            state->cc.s = ((state->a & 0x80) != 0);
+            state->cc.p = parity2(state->a, 8);
+            state->pc++;
 
         // MVI A, D8
         // Move immidiate data into register A
@@ -209,21 +249,427 @@ emulate(State *state)
             state->pc += 2;
             break;
 
-        // LDA addr
-        case 0x3a:
+        // MOV B, B
+        case 0x40:
+            state->b = state->b;
+            state->pc++;
+            break;
+
+        // MOV B, C
+        case 0x41:
+            state->b = state->c;
+            state->pc++;
+            break;
+
+        // MOV B, D
+        case 0x42:
+            state->b = state->d;
+            state->pc++;
+            break;
+
+        // MOV B, E
+        case 0x43:
+            state->b = state->e;
+            state->pc++;
+            break;
+
+        // MOV B, H
+        case 0x44:
+            state->b = state->h;
+            state->pc++;
+            break;
+
+        // MOV B, L
+        case 0x45:
+            state->b = state->l;
+            state->pc++;
+            break;
+
+        // MOV B, M
+        case 0x46:
             {
-            uint16_t target_addr = (opcode[2] << 8) | opcode[1];
-            state->a   = state->memory[target_addr];
-            state->pc += 3;
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->b             = state->memory[target_addr];
+                state->pc++;
             }
+            break;
+
+        // MOV B, A
+        case 0x47:
+            state->b = state->a;
+            state->pc++;
+            break;
+
+        // MOV C, B
+        case 0x48:
+            state->c = state->b;
+            state->pc++;
+            break;
+
+        // MOV C, C
+        case 0x49:
+            state->c = state->c;
+            state->pc++;
+            break;
+
+        // MOV C, D
+        case 0x4a:
+            state->c = state->d;
+            state->pc++;
+            break;
+
+        // MOV C, E
+        case 0x4b:
+            state->c = state->e;
+            state->pc++;
+            break;
+
+        // MOV C, H
+        case 0x4c:
+            state->c = state->h;
+            state->pc++;
+            break;
+
+        // MOV C, L
+        case 0x4d:
+            state->c = state->l;
+            state->pc++;
+            break;
+
+        // MOV C, M
+        case 0x4e:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->c             = state->memory[target_addr];
+                state->pc++;
+            }
+            break;
+
+        // MOV C, A
+        case 0x4f:
+            state->c = state->a;
+            state->pc++;
+            break;
+
+        // MOV D, B
+        case 0x50:
+            state->d = state->b;
+            state->pc++;
+            break;
+
+        // MOV D, C
+        case 0x51:
+            state->d = state->c;
+            state->pc++;
+            break;
+
+        // MOV D, D
+        case 0x52:
+            state->d = state->d;
+            state->pc++;
+            break;
+
+        // MOV D, E
+        case 0x53:
+            state->d = state->e;
+            state->pc++;
+            break;
+
+        // MOV D, H
+        case 0x54:
+            state->d = state->h;
+            state->pc++;
+            break;
+
+        // MOV D, L
+        case 0x55:
+            state->d = state->l;
+            state->pc++;
+            break;
+
+        // MOV D, L
+        case 0x56:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->d             = state->memory[target_addr];
+                state->pc++;
+            }
+            break;
+
+        // MOV D, A
+        case 0x57 :
+            state->d = state->a;
+            state->pc++;
+            break;
+
+        // MOV E, B
+        case 0x58:
+            state->e = state->b;
+            state->pc++;
+            break;
+
+        // MOV E, C
+        case 0x59:
+            state->e = state->c;
+            state->pc++;
+            break;
+
+        // MOV E, D
+        case 0x5a:
+            state->e = state->d;
+            state->pc++;
+            break;
+
+        // MOV E, E
+        case 0x5b:
+            state->e = state->e;
+            state->pc++;
+            break;
+
+        // MOV E, H
+        case 0x5c:
+            state->e = state->h;
+            state->pc++;
+            break;
+
+        // MOV E, L
+        case 0x5d:
+            state->e = state->l;
+            state->pc++;
+            break;
+
+        // MOV E, M
+        case 0x5e:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->e             = state->memory[target_addr];
+                state->pc++;
+            }
+            break;
+
+        // MOV E, A
+        case 0x5f:
+            state->e = state->a;
+            state->pc++;
+            break;
+
+        // MOV H, B
+        case 0x60:
+            state->h = state->b;
+            state->pc++;
+            break;
+
+        // MOV H, C
+        case 0x61:
+            state->h = state->c;
+            state->pc++;
+            break;
+
+        // MOV H, D
+        case 0x62:
+            state->h = state->d;
+            state->pc++;
+            break;
+
+        // MOV H, E
+        case 0x63:
+            state->h = state->e;
+            state->pc++;
+            break;
+
+        // MOV H, H
+        case 0x64:
+            state->h = state->h;
+            state->pc++;
+            break;
+
+        // MOV H, L
+        case 0x65:
+            state->h = state->l;
+            state->pc++;
+            break;
+
+        // MOV H, M
+        case 0x66:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->h             = state->memory[target_addr];
+                state->pc++;
+            }
+            break;
+
+        // MOV H, A
+        case 0x67:
+            state->h = state->a;
+            state->pc++;
+            break;
+
+        // MOV L, B
+        case 0x68:
+            state->l = state->b;
+            state->pc++;
+            break;
+
+        // MOV L, C
+        case 0x69:
+            state->l = state->c;
+            state->pc++;
+            break;
+
+        // MOV L, D
+        case 0x6a:
+            state->l = state->d;
+            state->pc++;
+            break;
+
+        // MOV L, E
+        case 0x6b:
+            state->l = state->e;
+            state->pc++;
+            break;
+
+        // MOV L, H
+        case 0x6c:
+            state->l = state->h;
+            state->pc++;
+            break;
+
+        // MOV L, L
+        case 0x6d:
+            state->l = state->l;
+            state->pc++;
+            break;
+
+        // MOV L, M
+        case 0x6e:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->l             = state->memory[target_addr];
+                state->pc++;
+            }
+            break;
+
+        // MOV L, A
+        case 0x6f:
+            state->l = state->a;
+            state->pc++;
+            break;
+
+        // MOV M, B
+        case 0x70:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->memory[target_addr] = state->b;
+                state->pc++;
+            }
+            break;
+
+        // MOV M, C
+        case 0x71:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->memory[target_addr] = state->c;
+                state->pc++;
+            }
+            break;
+
+        // MOV M, D
+        case 0x72:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->memory[target_addr] = state->d;
+                state->pc++;
+            }
+            break;
+
+        // MOV M, E
+        case 0x73:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->memory[target_addr] = state->e;
+                state->pc++;
+            }
+            break;
+
+        // MOV M, H
+        case 0x74:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->memory[target_addr] = state->h;
+                state->pc++;
+            }
+            break;
+
+        // MOV M, L
+        case 0x75:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->memory[target_addr] = state->l;
+                state->pc++;
+            }
+            break;
+
+        // HLT
+        case 0x76:
             break;
 
         // MOV M, A
         case 0x77:
             {
-            uint16_t target_addr = (state->h << 8) | state->l;
-            state->memory[target_addr] = state->a;
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->memory[target_addr] = state->a;
             }
+            state->pc++;
+            break;
+
+        // MOV A, B
+        case 0x78:
+            state->a = state->b;
+            state->pc++;
+            break;
+
+        // MOV A, C
+        case 0x79:
+            state->a = state->c;
+            state->pc++;
+            break;
+
+        // MOV A, D
+        case 0x7a:
+            state->a = state->d;
+            state->pc++;
+            break;
+
+        // MOV A, E
+        case 0x7b:
+            state->a = state->e;
+            state->pc++;
+            break;
+
+        // MOV A, H
+        case 0x7c:
+            state->a = state->h;
+            state->pc++;
+            break;
+
+        // MOV A, L
+        case 0x7d:
+            state->a = state->l;
+            state->pc++;
+            break;
+
+        // MOV A, M
+        case 0x7e:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->a             = state->memory[target_addr];
+                state->pc++;
+            }
+            break;
+
+        // MOV A, A
+        case 0x7f:
+            state->a = state->a;
             state->pc++;
             break;
 
@@ -256,9 +702,11 @@ emulate(State *state)
             if (state->cc.z == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
+                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
+                printf("Not taken\n"); // debug
             }
             break;
 
@@ -300,15 +748,15 @@ emulate(State *state)
         // ADI D8
         case 0xc6:
             {
-            uint16_t res = (uint16_t) state->a + (uint16_t) opcode[1];
+                uint16_t res = (uint16_t) state->a + (uint16_t) opcode[1];
 
-            state->cc.cy = (res > 0xff);
-            state->cc.z  = ((res & 0xff) == 0);
-            state->cc.s  = ((res & 0x80) != 0);
-            state->cc.p  = parity2(res, 8);
+                state->cc.cy = (res > 0xff);
+                state->cc.z  = ((res & 0xff) == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = parity2(res, 8);
 
-            state->a     = (uint8_t) res;
-            state->pc   += 2;
+                state->a     = (uint8_t) res;
+                state->pc   += 2;
             }
             break;
 
@@ -317,9 +765,15 @@ emulate(State *state)
             if (state->cc.z == 1) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
+                printf("Taken\n"); // debug
+
+                // Debug
+                print_state(state);
+                exit(0);
             }
             else {
                 state->pc++;
+                printf("Not taken\n"); // debug
             }
             break;
 
@@ -410,9 +864,11 @@ emulate(State *state)
             if (state->cc.cy == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
+                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
+                printf("Not taken\n"); // debug
             }
             break;
 
@@ -478,9 +934,11 @@ emulate(State *state)
             if (state->cc.cy == 1) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
+                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
+                printf("Not taken\n"); // debug
             }
             break;
 
@@ -530,9 +988,11 @@ emulate(State *state)
             if (state->cc.p == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
+                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
+                printf("Not taken\n"); // debug
             }
             break;
 
@@ -617,26 +1077,26 @@ emulate(State *state)
        // XCHG
        case 0xeb:
             {
-            uint8_t tmp1 = state->d;
-            uint8_t tmp2 = state->e;
-            state->d     = state->h;
-            state->e     = state->l;
-            state->h     = tmp1;
-            state->l     = tmp2;
-            state->pc++;
+                uint8_t tmp1 = state->d;
+                uint8_t tmp2 = state->e;
+                state->d     = state->h;
+                state->e     = state->l;
+                state->h     = tmp1;
+                state->l     = tmp2;
+                state->pc++;
             }
             break;
 
        // XRI D8
        case 0xee:
             {
-            uint8_t res  = state->a ^ opcode[1];
-            state->cc.cy = 0;
-            state->cc.z  = (res == 0);
-            state->cc.s  = ((res & 0x80) != 0);
-            state->cc.p  = (parity2(res, 8));
-            state->a     = res;
-            state->pc += 2;
+                uint8_t res  = state->a ^ opcode[1];
+                state->cc.cy = 0;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->a     = res;
+                state->pc += 2;
             }
             break;
 
@@ -645,9 +1105,11 @@ emulate(State *state)
             if (state->cc.s == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
+                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
+                printf("Not taken\n"); // debug
             }
             break;
 
@@ -697,9 +1159,11 @@ emulate(State *state)
             if (state->cc.s == 1) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
+                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
+                printf("Not taken\n"); // debug
             }
             break;
 
@@ -741,12 +1205,12 @@ emulate(State *state)
         // CPI D8
         case 0xfe:
             {
-            uint16_t res = state->a - opcode[1];
-            state->cc.z  = (state->a == opcode[1]); // 1 if accumulator and immidiate are equal
-            state->cc.s  = ((res & 0x80) != 0);
-            state->cc.cy = (res > 0xff);
-            state->cc.p  = parity2(res, 8);
-            state->pc   += 2;
+                uint16_t res = state->a - opcode[1];
+                state->cc.z  = (state->a == opcode[1]); // 1 if accumulator and immidiate are equal
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.cy = (res > 0xff);
+                state->cc.p  = parity2(res, 8);
+                state->pc   += 2;
             }
             break;
 
