@@ -14,7 +14,6 @@ uint64_t count = 0;
 static void
 print_state(State *state)
 {
-    printf("\n");
     printf("REGISTERS:\tFLAGS:\n");
     printf("sp: 0x%04x\t", state->sp);
     printf("cy:  %d\n", state->cc.cy);
@@ -77,9 +76,6 @@ int parity2(int x, int size)
 static void
 emulate(State *state)
 {
-    // Dissasemble current instruction
-    dissas_curr_inst(state);
-
     // Use addres of opcode instead of value to
     // access data / addreses following it easily
     uint8_t *opcode = &state->memory[state->pc];
@@ -148,6 +144,27 @@ emulate(State *state)
             state->pc += 2;
             break;
 
+        // RLC
+        case 0x07:
+            state->cc.cy = ((state->a & 0x80) != 0);
+            state->a     = state->a << 1;
+            state->a     = state->a | state->cc.cy;
+            state->pc++;
+            break;
+
+        // DAD B
+        case 0x09:
+            {
+                uint16_t bc  = (state->b << 8) | state->c;
+                uint16_t hl  = (state->h << 8) | state->l;
+                uint32_t res = bc + hl;
+                state->h     = (res >> 8) & 0xff;
+                state->l     = res & 0xff;
+                state->cc.cy = ((res & 0xffff0000) != 0);
+                state->pc++;
+            }
+            break;
+
         // LDAX B
         case 0x0a:
             {
@@ -191,6 +208,13 @@ emulate(State *state)
         case 0x0e:
             state->c   = opcode[1];
             state->pc += 2;
+            break;
+
+        // RRC
+        case 0x0f:
+            state->cc.cy = ((state->a & 0x1) != 0);
+            state->a  = (state->a & 1) << 7 | state->a >> 1;
+            state->pc++;
             break;
 
         // LXI D, D16
@@ -246,6 +270,16 @@ emulate(State *state)
             state->pc += 2;
             break;
 
+        // RAL
+        case 0x17:
+            {
+                uint8_t tmp_accmulator = state->a;
+                state->a               = (tmp_accmulator << 1) | state->cc.cy;
+                state->cc.cy           = ((tmp_accmulator & 0x80) != 0);
+                state->pc++;
+            }
+            break;
+
         // DAD D
         // Double add HL + DE
         case 0x19:
@@ -294,6 +328,16 @@ emulate(State *state)
         case 0x1e:
             state->e   = opcode[1];
             state->pc += 2;
+            break;
+
+        // RAR
+        case 0x1f:
+            {
+                uint8_t tmp_accmulator = state->a;
+                state->a               = (tmp_accmulator >> 1) | (state->cc.cy << 7);
+                state->cc.cy           = ((tmp_accmulator & 1) != 0);
+                state->pc++;
+            }
             break;
 
         // LDAX D
@@ -357,6 +401,19 @@ emulate(State *state)
             state->pc += 2;
             break;
 
+        // DAD H
+        case 0x29:
+            {
+                uint16_t hl1 = (state->h << 8) | state->l;
+                uint16_t hl2 = (state->h << 8) | state->l;
+                uint32_t res = hl1 + hl2;
+                state->h     = (res >> 8) & 0xff;
+                state->l     = res & 0xff;
+                state->cc.cy = ((res & 0xffff0000) != 0);
+                state->pc++;
+            }
+            break;
+
         // LHLD addr
         case 0x2a:
             {
@@ -402,6 +459,12 @@ emulate(State *state)
         case 0x2e:
             state->l   = opcode[1];
             state->pc += 2;
+            break;
+
+        // CMA
+        case 0x2f:
+            state->a = ~state->a;
+            state->pc++;
             break;
 
         // LXI SP, D16
@@ -454,6 +517,24 @@ emulate(State *state)
             }
             break;
 
+        // STC
+        case 0x37:
+            state->cc.cy = 1;
+            state->pc++;
+            break;
+
+        // DAD SP
+        case 0x39:
+            {
+                uint16_t hl  = (state->h << 8) | state->l;
+                uint32_t res = state->sp + hl;
+                state->h     = (res >> 8) & 0xff;
+                state->l     = res & 0xff;
+                state->cc.cy = ((res & 0xffff0000) != 0);
+                state->pc++;
+            }
+            break;
+
         // LDA addr
         case 0x3a:
             {
@@ -494,6 +575,12 @@ emulate(State *state)
         case 0x3e:
             state->a   = opcode[1];
             state->pc += 2;
+            break;
+
+        // CMC
+        case 0x3f:
+            state->cc.cy = ~state->cc.cy;
+            state->pc++;
             break;
 
         // MOV B, B
@@ -2244,16 +2331,23 @@ main(int argc, char** argv)
     state->memory[0x59e] = 0x05;
 
     // Initial information
-    printf("*******************************\n");
-    printf("Press d to dump memory, q to quit\n");
-    printf("Memory allocated at: %p\n", state->memory);
-    printf("Memory size: %ld\n", state->memory_size);
+    printf("\n\n*******************************\n");
+    printf("ENTER to execute next instruction\n");
+    printf("d to dump memory\n");
+    printf("q to quit\n");
+    printf("\nROM size: %ld\n", state->memory_size);
     printf("********************************\n");
 
     bool print_memory = false;
     for (;;) {
+        printf("\n%ld\n", count);
+        count++;
+        print_state(state);
+        printf("Next instruction:\n");
+        dissas_curr_inst(state);
+        emulate(state);
+
         if (argc != 1) {
-            print_state(state);
 
             // Ask if user wants to dump memory
             uint16_t mem_start_int;
@@ -2289,9 +2383,11 @@ main(int argc, char** argv)
 
                 if (keep_printing_answer == 0x79) {
                     print_memory = true;
+                    continue;
                 }
                 else {
                     print_memory = false;
+                    continue;
                 }
                 getline(&junk, &n, stdin); // Clear stdin
             }
@@ -2305,7 +2401,6 @@ main(int argc, char** argv)
                 dump_memory(state, mem_start_int, amount_int);
             }
         }
-        emulate(state);
     }
     free(state->memory);
 
