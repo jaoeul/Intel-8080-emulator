@@ -13,16 +13,15 @@ static void
 print_state(State *state)
 {
     printf("REGISTERS:\n");
-    printf("sp: %d\n", state->sp);
-    printf("pc: %d Next inst: ", state->pc);
-    dissas_curr_inst(state);
-    printf("a: %d\n", state->a);
-    printf("b: %d\n", state->b);
-    printf("c: %d\n", state->c);
-    printf("d: %d\n", state->d);
-    printf("e: %d\n", state->e);
-    printf("h: %d\n", state->h);
-    printf("l: %d\n", state->l);
+    printf("sp: 0x%02x\n", state->sp);
+    printf("pc: 0x%02x\n", state->pc);
+    printf("a: 0x%02x\n", state->a);
+    printf("b: 0x%02x\n", state->b);
+    printf("c: 0x%02x\n", state->c);
+    printf("d: 0x%02x\n", state->d);
+    printf("e: 0x%02x\n", state->e);
+    printf("h: 0x%02x\n", state->h);
+    printf("l: 0x%02x\n", state->l);
     printf("FLAGS:\n");
     printf("cy: %d\n", state->cc.cy);
     printf("p: %d\n", state->cc.p);
@@ -40,6 +39,7 @@ unimp(State *state)
 {
     printf("Unimplemented opcode: 0x%02x\n", state->memory[state->pc]);
     print_state(state);
+    printf("Not taken\n"); // debug
     exit(1);
 }
 
@@ -79,11 +79,15 @@ int parity2(int x, int size)
 static void
 emulate(State *state)
 {
-    printf("%ld\t", count);
-    count++;
-
     // Dissasemble current instruction
     dissas_curr_inst(state);
+
+    /* debug */
+    print_state(state);
+    getchar();
+
+    printf("%ld\t", count);
+    count++;
 
     // Use addres of opcode instead of value to
     // access data / addreses following it easily
@@ -113,22 +117,57 @@ emulate(State *state)
             state->pc++;
             break;
 
+        // INR B
+        case 0x04:
+            state->b++;
+            state->cc.z = (state->b == 0);
+            state->cc.s = ((state->b & 0x80) != 0);
+            state->cc.p = parity2(state->b, 8);
+            state->pc++;
+            break;
+
         // DCR b
         case 0x05:
             {
                 uint8_t res = state->b - 1;
-
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
                 state->cc.p = parity2(res, 8);
-                state->b = res;
+                state->b    = res;
                 state->pc++;
             }
             break;
 
         // MVI B, D8
         case 0x06:
-            state->b = opcode[1];
+            state->b   = opcode[1];
+            state->pc += 2;
+            break;
+
+        // LDAX B
+        case 0x0a:
+            {
+                uint16_t target_addr = (state->b << 8) | state->c;
+                state->a             = state->memory[target_addr];
+                state->pc++;
+            }
+            break;
+
+        // DCX B
+        case 0x0b:
+            state->c--;
+            if (state->c == 0xff) {
+                state->b--;
+            }
+            state->pc++;
+            break;
+
+        // INR C
+        case 0x0c:
+            state->c++;
+            state->cc.z = (state->c == 0);
+            state->cc.s = ((state->c & 0x80) != 0);
+            state->cc.p = parity2(state->c, 8);
             state->pc++;
             break;
 
@@ -136,11 +175,10 @@ emulate(State *state)
         case 0x0d:
             {
                 uint8_t res = state->c - 1;
-
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
                 state->cc.p = parity2(res, 8);
-                state->b = res;
+                state->c    = res;
                 state->pc++;
             }
             break;
@@ -168,6 +206,33 @@ emulate(State *state)
             state->pc++;
             break;
 
+        // INR D
+        case 0x14:
+            state->d++;
+            state->cc.z = (state->d == 0);
+            state->cc.s = ((state->d & 0x80) != 0);
+            state->cc.p = parity2(state->d, 8);
+            state->pc++;
+            break;
+
+        // DCR D
+        case 0x15:
+            {
+                uint8_t res = state->d - 1;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->d    = res;
+                state->pc++;
+            }
+            break;
+
+        // MVI D, D8
+        case 0x16:
+            state->d   = opcode[1];
+            state->pc += 2;
+            break;
+
         // DAD D
         // Double add HL + DE
         case 0x19:
@@ -182,13 +247,40 @@ emulate(State *state)
             }
             break;
 
-        // INX H
-        case 0x23:
-            state->l++;
-            // If e overflows into D, inc D
-            if (state->l == 0)
-                state->h++;
+        // DCX D
+        case 0x1b:
+            state->e--;
+            if (state->e == 0xff) {
+                state->d--;
+            }
             state->pc++;
+            break;
+
+        // INR E
+        case 0x1c:
+            state->e++;
+            state->cc.z = (state->e == 0);
+            state->cc.s = ((state->e & 0x80) != 0);
+            state->cc.p = parity2(state->e, 8);
+            state->pc++;
+            break;
+
+        // DCR E
+        case 0x1d:
+            {
+                uint8_t res = state->e - 1;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->e    = res;
+                state->pc++;
+            }
+            break;
+
+        // MVI E, D8
+        case 0x1e:
+            state->e   = opcode[1];
+            state->pc += 2;
             break;
 
         // LDAX D
@@ -208,6 +300,98 @@ emulate(State *state)
             state->pc += 3;
             break;
 
+        // SHLD addr
+        case 0x22:
+            {
+                uint16_t target_addr           = (opcode[2] << 8) | opcode[1];
+                state->memory[target_addr]     = state->l;
+                state->memory[target_addr + 1] = state->h;
+                state->pc                     += 3;
+            }
+            break;
+
+        // INX H
+        case 0x23:
+            state->l++;
+            if (state->l == 0)
+                state->h++;
+            state->pc++;
+            break;
+
+        // INR H
+        case 0x24:
+            state->h++;
+            state->cc.z = (state->h == 0);
+            state->cc.s = ((state->h & 0x80) != 0);
+            state->cc.p = parity2(state->h, 8);
+            state->pc++;
+            break;
+
+        // DCR H
+        case 0x25:
+            {
+                uint8_t res = state->h - 1;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->h    = res;
+                state->pc++;
+            }
+            break;
+
+        // MVI H, D8
+        case 0x26:
+            state->h   = opcode[1];
+            state->pc += 2;
+            break;
+
+        // LHLD addr
+        case 0x2a:
+            {
+                uint16_t target_addr = (opcode[2] << 8) | opcode[1];
+                state->l             = state->memory[target_addr];
+                state->h             = state->memory[target_addr + 1];
+                state->pc           += 3;
+            }
+            break;
+
+        // DCX H
+        case 0x2b:
+            state->l--;
+            if (state->l == 0xff) {
+                state->h--;
+            }
+            state->pc++;
+            break;
+
+        // INR L
+        case 0x2c:
+            state->l++;
+            state->cc.z = (state->l == 0);
+            state->cc.s = ((state->l & 0x80) != 0);
+            state->cc.p = parity2(state->l, 8);
+            state->pc++;
+            break;
+
+        // DCR L
+        case 0x2d:
+            {
+                uint8_t res = state->l - 1;
+
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->l    = res;
+                state->pc++;
+            }
+            break;
+
+        // MVI L, D8
+        case 0x2e:
+            state->l   = opcode[1];
+            state->pc += 2;
+            break;
+
         // LXI SP, D16
         case 0x31:
             state->sp  = (opcode[2] << 8) | opcode[1];
@@ -215,7 +399,7 @@ emulate(State *state)
             break;
 
         // STA adr
-        // Replace value of accumulater at direct address
+        // Replace value at direct address with value of accumulator
         case 0x32:
             {
                 uint16_t target_addr = (opcode[2] << 8) | opcode[1];
@@ -224,6 +408,39 @@ emulate(State *state)
             }
             break;
 
+        // INR M
+        case 0x34:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->memory[target_addr]++;
+                state->cc.z          = (state->memory[target_addr] == 0);
+                state->cc.s          = ((state->memory[target_addr] & 0x80) != 0);
+                state->cc.p          = parity2(state->memory[target_addr], 8);
+                state->pc++;
+            }
+            break;
+
+        // DCR M
+        case 0x35:
+            {
+                uint16_t target_addr       = (state->h << 8) | state->l;
+                uint8_t res                = state->memory[target_addr] - 1;
+                state->cc.z                = (res == 0);
+                state->cc.s                = ((res & 0x80) != 0);
+                state->cc.p                = parity2(res, 8);
+                state->memory[target_addr] = res;
+                state->pc++;
+            }
+            break;
+
+        // MVI M, D8
+        case 0x36:
+            {
+                uint16_t target_addr       = (state->h << 8) | state->l;
+                state->memory[target_addr] = opcode[1];
+                state->pc += 2;
+            }
+            break;
 
         // LDA addr
         case 0x3a:
@@ -234,6 +451,12 @@ emulate(State *state)
             }
             break;
 
+        // DCX SP
+        case 0x3b:
+            state->sp--;
+            state->pc++;
+            break;
+
         // INR A
         case 0x3c:
             state->a++;
@@ -241,9 +464,21 @@ emulate(State *state)
             state->cc.s = ((state->a & 0x80) != 0);
             state->cc.p = parity2(state->a, 8);
             state->pc++;
+            break;
+
+        // DCR A
+        case 0x3d:
+            {
+                uint8_t res = state->a - 1;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->a    = res;
+                state->pc++;
+            }
+            break;
 
         // MVI A, D8
-        // Move immidiate data into register A
         case 0x3e:
             state->a   = opcode[1];
             state->pc += 2;
@@ -673,32 +908,774 @@ emulate(State *state)
             state->pc++;
             break;
 
+        // ADD B
+        case 0x80:
+            {
+                uint16_t res = state->a + state->b;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADD C
+        case 0x81:
+            {
+                uint16_t res = state->a + state->c;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADD D
+        case 0x82:
+            {
+                uint16_t res = state->a + state->d;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADD E
+        case 0x83:
+            {
+                uint16_t res = state->a + state->e;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADD H
+        case 0x84:
+            {
+                uint16_t res = state->a + state->h;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADD L
+        case 0x85:
+            {
+                uint16_t res = state->a + state->l;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADD M
+        case 0x86:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                uint16_t res = state->a + state->memory[target_addr];
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADD A
+        case 0x87:
+            {
+                uint16_t res = state->a + state->a;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADC B
+        case 0x88:
+            {
+                uint16_t res = state->a + state->b + state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADC C
+        case 0x89:
+            {
+                uint16_t res = state->a + state->c + state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADC D
+        case 0x8a:
+            {
+                uint16_t res = state->a + state->d + state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADC E
+        case 0x8b:
+            {
+                uint16_t res = state->a + state->e + state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADC H
+        case 0x8c:
+            {
+                uint16_t res = state->a + state->h + state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADC L
+        case 0x8d:
+            {
+                uint16_t res = state->a + state->l + state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADC M
+        case 0x8e:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                uint16_t res         = state->a + state->memory[target_addr] + state->cc.cy;
+                state->cc.z          = (res == 0);
+                state->cc.s          = ((res & 0x80) != 0);
+                state->cc.p          = (parity2(res, 8));
+                state->cc.cy         = (res > 0xff);
+                state->a             = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ADC A
+        case 0x8f:
+            {
+                uint16_t res = state->a + state->a + state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SUB B
+        case 0x90:
+            {
+                uint16_t res = state->a - state->b;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SUB C
+        case 0x91:
+            {
+                uint16_t res = state->a - state->c;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SUB D
+        case 0x92:
+            {
+                uint16_t res = state->a - state->d;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SUB E
+        case 0x93:
+            {
+                uint16_t res = state->a - state->e;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SUB H
+        case 0x94:
+            {
+                uint16_t res = state->a - state->h;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SUB L
+        case 0x95:
+            {
+                uint16_t res = state->a - state->l;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SUB M
+        case 0x96:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                uint16_t res         = state->a - state->memory[target_addr];
+                state->cc.z          = (res == 0);
+                state->cc.s          = ((res & 0x80) != 0);
+                state->cc.p          = (parity2(res, 8));
+                state->cc.cy         = (res > 0xff);
+                state->a             = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SUB A
+        case 0x97:
+            {
+                uint16_t res = state->a - state->a;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SBB B
+        case 0x98:
+            {
+                uint16_t res = state->a - state->b - state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SBB C
+        case 0x99:
+            {
+                uint16_t res = state->a - state->c - state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SBB D
+        case 0x9a:
+            {
+                uint16_t res = state->a - state->d - state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SBB E
+        case 0x9b:
+            {
+                uint16_t res = state->a - state->e - state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SBB H
+        case 0x9c:
+            {
+                uint16_t res = state->a - state->h - state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SBB L
+        case 0x9d:
+            {
+                uint16_t res = state->a - state->l - state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SBB M
+        case 0x9e:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                uint16_t res         = state->a - state->memory[target_addr] - state->cc.cy;
+                state->cc.z          = (res == 0);
+                state->cc.s          = ((res & 0x80) != 0);
+                state->cc.p          = (parity2(res, 8));
+                state->cc.cy         = (res > 0xff);
+                state->a             = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // SBB A
+        case 0x9f:
+            {
+                uint16_t res = state->a - state->a - state->cc.cy;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity2(res, 8));
+                state->cc.cy = (res > 0xff);
+                state->a     = (res & 0xff);
+                state->pc++;
+            }
+            break;
+
+        // ANA B
+        case 0xa0:
+            state->a     = state->a & state->b;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ANA C
+        case 0xa1:
+            state->a     = state->a & state->c;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ANA D
+        case 0xa2:
+            state->a     = state->a & state->d;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ANA E
+        case 0xa3:
+            state->a     = state->a & state->e;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ANA H
+        case 0xa4:
+            state->a     = state->a & state->h;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ANA L
+        case 0xa5:
+            state->a     = state->a & state->l;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ANA M
+        case 0xa6:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->a             = state->a & state->memory[target_addr];
+                state->cc.z          = (state->a == 0);
+                state->cc.s          = ((state->a & 0x80) != 0);
+                state->cc.p          = parity2(state->a, 8);
+                state->cc.cy         = 0;
+                state->pc++;
+            }
+            break;
+
         // ANA A
         case 0xa7:
-            state->a = state->a & state->a;
-
+            state->a     = state->a & state->a;
             state->cc.cy = 0;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->pc++;
+            break;
+
+        // XRA B
+        case 0xa8:
+            state->a = state->a ^ state->b;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
             state->cc.p = parity2(state->a, 8);
-            
+            state->cc.cy = 0;
             state->pc++;
+            break;
+
+        // XRA C
+        case 0xa9:
+            state->a = state->a ^ state->c;
+            state->cc.z = (state->a == 0);
+            state->cc.s = ((state->a & 0x80) != 0);
+            state->cc.p = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // XRA D
+        case 0xaa:
+            state->a = state->a ^ state->d;
+            state->cc.z = (state->a == 0);
+            state->cc.s = ((state->a & 0x80) != 0);
+            state->cc.p = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // XRA E
+        case 0xab:
+            state->a = state->a ^ state->e;
+            state->cc.z = (state->a == 0);
+            state->cc.s = ((state->a & 0x80) != 0);
+            state->cc.p = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // XRA H
+        case 0xac:
+            state->a = state->a ^ state->h;
+            state->cc.z = (state->a == 0);
+            state->cc.s = ((state->a & 0x80) != 0);
+            state->cc.p = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // XRA L
+        case 0xad:
+            state->a = state->a ^ state->l;
+            state->cc.z = (state->a == 0);
+            state->cc.s = ((state->a & 0x80) != 0);
+            state->cc.p = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // XRA M
+        case 0xae:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->a = state->a ^ state->memory[target_addr];
+                state->cc.z = (state->a == 0);
+                state->cc.s = ((state->a & 0x80) != 0);
+                state->cc.p = parity2(state->a, 8);
+                state->cc.cy = 0;
+                state->pc++;
+            }
             break;
 
         // XRA A
         case 0xaf:
             state->a = state->a ^ state->a;
-
-            state->cc.cy = 0;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
             state->cc.p = parity2(state->a, 8);
-
+            state->cc.cy = 0;
             state->pc++;
             break;
 
-       // RNZ
-       case 0xc0:
+        // ORA B
+        case 0xb0:
+            state->a     = state->a | state->b;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ORA C
+        case 0xb1:
+            state->a     = state->a | state->c;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ORA D
+        case 0xb2:
+            state->a     = state->a | state->d;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ORA E
+        case 0xb3:
+            state->a     = state->a | state->e;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ORA H
+        case 0xb4:
+            state->a     = state->a | state->h;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ORA L
+        case 0xb5:
+            state->a     = state->a | state->l;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // ORA M
+        case 0xb6:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                state->a     = state->a | state->memory[target_addr];
+                state->cc.z  = (state->a == 0);
+                state->cc.s  = ((state->a & 0x80) != 0);
+                state->cc.p  = parity2(state->a, 8);
+                state->cc.cy = 0;
+                state->pc++;
+            }
+            break;
+
+        // ORA A
+        case 0xb7:
+            state->a     = state->a | state->a;
+            state->cc.z  = (state->a == 0);
+            state->cc.s  = ((state->a & 0x80) != 0);
+            state->cc.p  = parity2(state->a, 8);
+            state->cc.cy = 0;
+            state->pc++;
+            break;
+
+        // CMP B
+        case 0xb8:
+            {
+                uint16_t res = state->a - state->b;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->cc.cy = (res > 0xff);
+                state->pc++;
+            }
+            break;
+
+        // CMP C
+        case 0xb9:
+            {
+                uint16_t res = state->a - state->c;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->cc.cy = (res > 0xff);
+                state->pc++;
+            }
+            break;
+
+        // CMP D
+        case 0xba:
+            {
+                uint16_t res = state->a - state->d;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->cc.cy = (res > 0xff);
+                state->pc++;
+            }
+            break;
+
+        // CMP E
+        case 0xbb:
+            {
+                uint16_t res = state->a - state->e;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->cc.cy = (res > 0xff);
+                state->pc++;
+            }
+            break;
+
+        // CMP H
+        case 0xbc:
+            {
+                uint16_t res = state->a - state->h;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->cc.cy = (res > 0xff);
+                state->pc++;
+            }
+            break;
+
+        // CMP L
+        case 0xbd:
+            {
+                uint16_t res = state->a - state->l;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->cc.cy = (res > 0xff);
+                state->pc++;
+            }
+            break;
+
+        // CMP M
+        case 0xbe:
+            {
+                uint16_t target_addr = (state->h << 8) | state->l;
+                uint16_t res         = state->a - state->memory[target_addr];
+                state->cc.z          = (res == 0);
+                state->cc.s          = ((res & 0x80) != 0);
+                state->cc.p          = parity2(res, 8);
+                state->cc.cy         = (res > 0xff);
+                state->pc++;
+            }
+            break;
+
+        // CMP A
+        case 0xbf:
+            {
+                uint16_t res = state->a - state->a;
+                state->cc.z = (res == 0);
+                state->cc.s = ((res & 0x80) != 0);
+                state->cc.p = parity2(res, 8);
+                state->cc.cy = (res > 0xff);
+                state->pc++;
+            }
+            break;
+
+        // RNZ
+        case 0xc0:
             if (state->cc.z == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
