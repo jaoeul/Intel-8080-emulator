@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
 
 #include "intel8080.h"
 #include "dissas.h"
@@ -12,26 +14,22 @@ uint64_t count = 0;
 static void
 print_state(State *state)
 {
-    printf("REGISTERS:\n");
-    printf("sp: 0x%02x\n", state->sp);
-    printf("pc: 0x%02x\n", state->pc);
-    printf("a: 0x%02x\n", state->a);
-    printf("b: 0x%02x\n", state->b);
-    printf("c: 0x%02x\n", state->c);
-    printf("d: 0x%02x\n", state->d);
-    printf("e: 0x%02x\n", state->e);
-    printf("h: 0x%02x\n", state->h);
-    printf("l: 0x%02x\n", state->l);
-    printf("FLAGS:\n");
-    printf("cy: %d\n", state->cc.cy);
-    printf("p: %d\n", state->cc.p);
-    printf("s: %d\n", state->cc.s);
-    printf("z: %d\n", state->cc.z);
-    printf("ac: %d\n", state->cc.ac);
+    printf("\n");
+    printf("REGISTERS:\tFLAGS:\n");
+    printf("sp: 0x%04x\t", state->sp);
+    printf("cy:  %d\n", state->cc.cy);
+    printf("pc: 0x%04x\t", state->pc);
+    printf("p:   %d\n", state->cc.p);
+    printf("a:  0x%02x\t", state->a);
+    printf("z:   %d\n", state->cc.z);
+    printf("b:  0x%02x\t", state->b);
+    printf("ac:  %d\n", state->cc.ac);
+    printf("c:  0x%02x\t", state->c);
     printf("pad: %d\n", state->cc.pad);
-    printf("mem: %p\n", state->memory);
-    printf("mem sz: %ld\n", state->memory_size);
-    printf("int enable: %d\n", state->int_enable);
+    printf("d:  0x%02x\n", state->d);
+    printf("e:  0x%02x\n", state->e);
+    printf("h:  0x%02x\n", state->h);
+    printf("l:  0x%02x\n", state->l);
 }
 
 static void
@@ -82,13 +80,6 @@ emulate(State *state)
     // Dissasemble current instruction
     dissas_curr_inst(state);
 
-    /* debug */
-    print_state(state);
-    getchar();
-
-    printf("%ld\t", count);
-    count++;
-
     // Use addres of opcode instead of value to
     // access data / addreses following it easily
     uint8_t *opcode = &state->memory[state->pc];
@@ -107,6 +98,15 @@ emulate(State *state)
             state->b  = opcode[2];
             state->pc += 3;
             break;
+
+        // STAX B
+        case 0x02:
+        {
+            uint16_t target_addr = (state->b << 8) | state->c;
+            state->memory[target_addr] = state->a;
+            state->pc++;
+        }
+        break;
 
         // INX B
         case 0x03:
@@ -128,9 +128,13 @@ emulate(State *state)
 
         // DCR b
         case 0x05:
+            printf("Taken\n"); // debug
+            printf("Taken\n"); // debug
             {
                 uint8_t res = state->b - 1;
+                printf("Not taken\n"); // debug
                 state->cc.z = (res == 0);
+                printf("Not taken\n"); // debug
                 state->cc.s = ((res & 0x80) != 0);
                 state->cc.p = parity2(res, 8);
                 state->b    = res;
@@ -195,6 +199,15 @@ emulate(State *state)
             state->e   = opcode[1];
             state->pc += 3;
             break;
+
+        // STAX D
+        case 0x12:
+        {
+            uint16_t target_addr = (state->d << 8) | state->e;
+            state->memory[target_addr] = state->a;
+            state->pc++;
+        }
+        break;
 
         // INX D
         // Increment register pair D + E
@@ -284,11 +297,10 @@ emulate(State *state)
             break;
 
         // LDAX D
-        // Load value in address D+E into register A
         case 0x1a:
             {
                 uint16_t target_addr = (state->d << 8) | state->e;
-                state->a = state->memory[target_addr];
+                state->a             = state->memory[target_addr];
                 state->pc++;
             }
             break;
@@ -2197,8 +2209,20 @@ emulate(State *state)
     }
 }
 
+static void
+dump_memory(State *state, size_t mem_start_int, size_t amount_int)
+{
+    printf("Memory 0x%04lx - 0x%04lx\n", mem_start_int, mem_start_int + amount_int);
+
+    for (size_t i = 0; i < amount_int; i++) {
+        printf("\n0x%04lx  ", mem_start_int + i);
+        printf("%02x ", state->memory[mem_start_int + i]);
+    }
+    printf("\n\n");
+}
+
 int
-main()
+main(int argc, char** argv)
 {
     State *state = calloc(sizeof state, 1);
 
@@ -2219,10 +2243,70 @@ main()
     state->memory[0x59d] = 0xc2;
     state->memory[0x59e] = 0x05;
 
+    // Initial information
+    printf("*******************************\n");
+    printf("Press d to dump memory, q to quit\n");
+    printf("Memory allocated at: %p\n", state->memory);
+    printf("Memory size: %ld\n", state->memory_size);
+    printf("********************************\n");
+
+    bool print_memory = false;
     for (;;) {
+        if (argc != 1) {
+            print_state(state);
+
+            // Ask if user wants to dump memory
+            uint16_t mem_start_int;
+            uint16_t amount_int;
+            size_t n = 64;
+            char* junk = calloc(n, sizeof(char));
+
+            int dump = fgetc(stdin);
+
+            if (dump == 0x64) {
+
+                // Ask for the address range to dump
+                printf("Start print mem at 0x");
+                char* mem_start = calloc(n, sizeof(char));
+                getline(&junk, &n, stdin); // Clear stdin
+                getline(&mem_start, &n, stdin);
+
+                printf("Amount: ");
+                char* amount = calloc(n, sizeof(char));
+                getline(&amount, &n, stdin);
+
+                mem_start_int = strtol(mem_start, NULL, 16);
+                amount_int    = strtol(amount, NULL, 10);
+
+                free(mem_start);
+                free(amount);
+
+                dump_memory(state, mem_start_int, amount_int);
+
+                // Ask if user want to keep printing the same memory each intsruction
+                printf("Keep printing? [y/n]: ");
+                int keep_printing_answer = fgetc(stdin);
+
+                if (keep_printing_answer == 0x79) {
+                    print_memory = true;
+                }
+                else {
+                    print_memory = false;
+                }
+                getline(&junk, &n, stdin); // Clear stdin
+            }
+            else if (dump == 0x71) {
+                free(state->memory);
+                free(state);
+                exit(0);
+            }
+
+            if (print_memory) {
+                dump_memory(state, mem_start_int, amount_int);
+            }
+        }
         emulate(state);
     }
-
     free(state->memory);
 
     return 0;
