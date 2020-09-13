@@ -7,11 +7,12 @@ make dis
 ### Emulator
 make emu
 
-## Dissasembler usage
+## Usage
+### Dissasembler
 ./dis \<path_to_intel8080_binary\>
 
-## Emulator usage
+### Emulator
 ./emu \<path_to_intel8080_binary\>
 
-## Debug mode
+### Debug mode
 ./emu \<path_to_intel8080_binary\> debug
