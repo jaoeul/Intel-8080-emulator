@@ -4,7 +4,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#include "intel8080.h"
+#include "emu.h"
 #include "dissas.h"
 
 #define FOR_CPUDIAG
@@ -22,9 +22,9 @@ print_state(State *state)
     printf("a:  0x%02x\t", state->a);
     printf("z:   %d\n", state->cc.z);
     printf("b:  0x%02x\t", state->b);
-    printf("ac:  %d\n", state->cc.ac);
+    printf("s:   %d\n", state->cc.s);
     printf("c:  0x%02x\t", state->c);
-    printf("pad: %d\n", state->cc.pad);
+    printf("ac:  %d\n", state->cc.ac);
     printf("d:  0x%02x\n", state->d);
     printf("e:  0x%02x\n", state->e);
     printf("h:  0x%02x\n", state->h);
@@ -36,41 +36,28 @@ unimp(State *state)
 {
     printf("Unimplemented opcode: 0x%02x\n", state->memory[state->pc]);
     print_state(state);
-    printf("Not taken\n"); // debug
     exit(1);
 }
 
-//static int
-//parity(uint16_t number)
-//{
-//    int bits_n = 0;
-//
-//    if ((number & 0x80) != 0) bits_n++;
-//    if ((number & 0x40) != 0) bits_n++;
-//    if ((number & 0x20) != 0) bits_n++;
-//    if ((number & 0x10) != 0) bits_n++;
-//    if ((number & 0x8)  != 0) bits_n++;
-//    if ((number & 0x4)  != 0) bits_n++;
-//    if ((number & 0x2)  != 0) bits_n++;
-//    if ((number & 0x1)  != 0) bits_n++;
-//
-//    if (bits_n % 2 == 0)
-//        return 1;
-//    else
-//        return 0;
-//}
-//
-int parity2(int x, int size)
+static int
+parity(uint8_t number)
 {
-	int i;
-	int p = 0;
-	x = (x & ((1<<size)-1));
-	for (i=0; i<size; i++)
-	{
-		if (x & 0x1) p++;
-		x = x >> 1;
-	}
-	return (0 == (p & 0x1));
+    int bits_n = 0;
+    if ((number & 0b10000000) != 0) bits_n++;
+    if ((number & 0b01000000) != 0) bits_n++;
+    if ((number & 0b00100000) != 0) bits_n++;
+    if ((number & 0b00010000) != 0) bits_n++;
+    if ((number & 0b00001000) != 0) bits_n++;
+    if ((number & 0b00000100) != 0) bits_n++;
+    if ((number & 0b00000010) != 0) bits_n++;
+    if ((number & 0b00000001) != 0) bits_n++;
+
+    if (bits_n % 2 == 0) {
+        return 1;
+    }
+    else {
+        return 0;
+    }
 }
 
 static void
@@ -87,7 +74,6 @@ emulate(State *state)
             state->pc++;
             break;
 
-        // Load 16 bit value into register pair
         // LXI B, D16
         case 0x01:
             state->c  = opcode[1];
@@ -118,21 +104,17 @@ emulate(State *state)
             state->b++;
             state->cc.z = (state->b == 0);
             state->cc.s = ((state->b & 0x80) != 0);
-            state->cc.p = parity2(state->b, 8);
+            state->cc.p = parity(state->b);
             state->pc++;
             break;
 
         // DCR b
         case 0x05:
-            printf("Taken\n"); // debug
-            printf("Taken\n"); // debug
             {
                 uint8_t res = state->b - 1;
-                printf("Not taken\n"); // debug
                 state->cc.z = (res == 0);
-                printf("Not taken\n"); // debug
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->b    = res;
                 state->pc++;
             }
@@ -188,7 +170,7 @@ emulate(State *state)
             state->c++;
             state->cc.z = (state->c == 0);
             state->cc.s = ((state->c & 0x80) != 0);
-            state->cc.p = parity2(state->c, 8);
+            state->cc.p = parity(state->c);
             state->pc++;
             break;
 
@@ -198,7 +180,7 @@ emulate(State *state)
                 uint8_t res = state->c - 1;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->c    = res;
                 state->pc++;
             }
@@ -219,8 +201,8 @@ emulate(State *state)
 
         // LXI D, D16
         case 0x11:
-            state->d   = opcode[2];
             state->e   = opcode[1];
+            state->d   = opcode[2];
             state->pc += 3;
             break;
 
@@ -234,12 +216,11 @@ emulate(State *state)
         break;
 
         // INX D
-        // Increment register pair D + E
         case 0x13:
             state->e++;
-            // If e overflows into D, inc D
-            if (state->e == 0)
+            if (state->e == 0) {
                 state->d++;
+            }
             state->pc++;
             break;
 
@@ -248,7 +229,7 @@ emulate(State *state)
             state->d++;
             state->cc.z = (state->d == 0);
             state->cc.s = ((state->d & 0x80) != 0);
-            state->cc.p = parity2(state->d, 8);
+            state->cc.p = parity(state->d);
             state->pc++;
             break;
 
@@ -258,7 +239,7 @@ emulate(State *state)
                 uint8_t res = state->d - 1;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->d    = res;
                 state->pc++;
             }
@@ -281,15 +262,14 @@ emulate(State *state)
             break;
 
         // DAD D
-        // Double add HL + DE
         case 0x19:
             {
                 uint32_t hl = (state->h << 8) | state->l;
                 uint32_t de = (state->d << 8) | state->e;
                 uint32_t res = hl + de;
-                state->h = (res & 0xff00) >> 8;           // Two highest bytes of res
-                state->l = res & 0xff;                    // Two lowest bytes of res
-                state->cc.cy = ((res & 0xffff0000) != 0); // Set carry flag if res overflows 32 bit int
+                state->h = (res & 0xff00) >> 8;
+                state->l = res & 0xff;
+                state->cc.cy = ((res & 0xffff0000) != 0);
                 state->pc++;
             }
             break;
@@ -308,7 +288,7 @@ emulate(State *state)
             state->e++;
             state->cc.z = (state->e == 0);
             state->cc.s = ((state->e & 0x80) != 0);
-            state->cc.p = parity2(state->e, 8);
+            state->cc.p = parity(state->e);
             state->pc++;
             break;
 
@@ -318,7 +298,7 @@ emulate(State *state)
                 uint8_t res = state->e - 1;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->e    = res;
                 state->pc++;
             }
@@ -351,8 +331,8 @@ emulate(State *state)
 
         // LXI H, D16
         case 0x21:
-            state->h   = opcode[2];
             state->l   = opcode[1];
+            state->h   = opcode[2];
             state->pc += 3;
             break;
 
@@ -379,7 +359,7 @@ emulate(State *state)
             state->h++;
             state->cc.z = (state->h == 0);
             state->cc.s = ((state->h & 0x80) != 0);
-            state->cc.p = parity2(state->h, 8);
+            state->cc.p = parity(state->h);
             state->pc++;
             break;
 
@@ -389,7 +369,7 @@ emulate(State *state)
                 uint8_t res = state->h - 1;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->h    = res;
                 state->pc++;
             }
@@ -438,7 +418,7 @@ emulate(State *state)
             state->l++;
             state->cc.z = (state->l == 0);
             state->cc.s = ((state->l & 0x80) != 0);
-            state->cc.p = parity2(state->l, 8);
+            state->cc.p = parity(state->l);
             state->pc++;
             break;
 
@@ -449,7 +429,7 @@ emulate(State *state)
 
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->l    = res;
                 state->pc++;
             }
@@ -474,13 +454,18 @@ emulate(State *state)
             break;
 
         // STA adr
-        // Replace value at direct address with value of accumulator
         case 0x32:
             {
                 uint16_t target_addr = (opcode[2] << 8) | opcode[1];
                 state->memory[target_addr] = state->a;
                 state->pc += 3;
             }
+            break;
+
+        // INX SP
+        case 0x33:
+            state->sp++;
+            state->pc++;
             break;
 
         // INR M
@@ -490,7 +475,7 @@ emulate(State *state)
                 state->memory[target_addr]++;
                 state->cc.z          = (state->memory[target_addr] == 0);
                 state->cc.s          = ((state->memory[target_addr] & 0x80) != 0);
-                state->cc.p          = parity2(state->memory[target_addr], 8);
+                state->cc.p          = parity(state->memory[target_addr]);
                 state->pc++;
             }
             break;
@@ -502,7 +487,7 @@ emulate(State *state)
                 uint8_t res                = state->memory[target_addr] - 1;
                 state->cc.z                = (res == 0);
                 state->cc.s                = ((res & 0x80) != 0);
-                state->cc.p                = parity2(res, 8);
+                state->cc.p                = parity(res);
                 state->memory[target_addr] = res;
                 state->pc++;
             }
@@ -555,7 +540,7 @@ emulate(State *state)
             state->a++;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
-            state->cc.p = parity2(state->a, 8);
+            state->cc.p = parity(state->a);
             state->pc++;
             break;
 
@@ -565,7 +550,7 @@ emulate(State *state)
                 uint8_t res = state->a - 1;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->a    = res;
                 state->pc++;
             }
@@ -1013,7 +998,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->b;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1026,7 +1011,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->c;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1039,7 +1024,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->d;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1052,7 +1037,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->e;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1065,7 +1050,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->h;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1078,7 +1063,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->l;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1092,7 +1077,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->memory[target_addr];
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1105,7 +1090,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->a;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1118,7 +1103,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->b + state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1131,7 +1116,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->c + state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1144,7 +1129,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->d + state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1157,7 +1142,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->e + state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1170,7 +1155,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->h + state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1183,7 +1168,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->l + state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1197,7 +1182,7 @@ emulate(State *state)
                 uint16_t res         = state->a + state->memory[target_addr] + state->cc.cy;
                 state->cc.z          = (res == 0);
                 state->cc.s          = ((res & 0x80) != 0);
-                state->cc.p          = (parity2(res, 8));
+                state->cc.p          = (parity(res));
                 state->cc.cy         = (res > 0xff);
                 state->a             = (res & 0xff);
                 state->pc++;
@@ -1210,7 +1195,7 @@ emulate(State *state)
                 uint16_t res = state->a + state->a + state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1223,7 +1208,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->b;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1236,7 +1221,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->c;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1249,7 +1234,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->d;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1262,7 +1247,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->e;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1275,7 +1260,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->h;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1288,7 +1273,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->l;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1302,7 +1287,7 @@ emulate(State *state)
                 uint16_t res         = state->a - state->memory[target_addr];
                 state->cc.z          = (res == 0);
                 state->cc.s          = ((res & 0x80) != 0);
-                state->cc.p          = (parity2(res, 8));
+                state->cc.p          = (parity(res));
                 state->cc.cy         = (res > 0xff);
                 state->a             = (res & 0xff);
                 state->pc++;
@@ -1315,7 +1300,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->a;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1328,7 +1313,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->b - state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1341,7 +1326,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->c - state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1354,7 +1339,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->d - state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1367,7 +1352,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->e - state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1380,7 +1365,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->h - state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1393,7 +1378,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->l - state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1407,7 +1392,7 @@ emulate(State *state)
                 uint16_t res         = state->a - state->memory[target_addr] - state->cc.cy;
                 state->cc.z          = (res == 0);
                 state->cc.s          = ((res & 0x80) != 0);
-                state->cc.p          = (parity2(res, 8));
+                state->cc.p          = (parity(res));
                 state->cc.cy         = (res > 0xff);
                 state->a             = (res & 0xff);
                 state->pc++;
@@ -1420,7 +1405,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->a - state->cc.cy;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->cc.cy = (res > 0xff);
                 state->a     = (res & 0xff);
                 state->pc++;
@@ -1432,7 +1417,7 @@ emulate(State *state)
             state->a     = state->a & state->b;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1442,7 +1427,7 @@ emulate(State *state)
             state->a     = state->a & state->c;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1452,7 +1437,7 @@ emulate(State *state)
             state->a     = state->a & state->d;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1462,7 +1447,7 @@ emulate(State *state)
             state->a     = state->a & state->e;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1472,7 +1457,7 @@ emulate(State *state)
             state->a     = state->a & state->h;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1482,7 +1467,7 @@ emulate(State *state)
             state->a     = state->a & state->l;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1494,7 +1479,7 @@ emulate(State *state)
                 state->a             = state->a & state->memory[target_addr];
                 state->cc.z          = (state->a == 0);
                 state->cc.s          = ((state->a & 0x80) != 0);
-                state->cc.p          = parity2(state->a, 8);
+                state->cc.p          = parity(state->a);
                 state->cc.cy         = 0;
                 state->pc++;
             }
@@ -1506,7 +1491,7 @@ emulate(State *state)
             state->cc.cy = 0;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->pc++;
             break;
 
@@ -1515,7 +1500,7 @@ emulate(State *state)
             state->a = state->a ^ state->b;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
-            state->cc.p = parity2(state->a, 8);
+            state->cc.p = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1525,7 +1510,7 @@ emulate(State *state)
             state->a = state->a ^ state->c;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
-            state->cc.p = parity2(state->a, 8);
+            state->cc.p = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1535,7 +1520,7 @@ emulate(State *state)
             state->a = state->a ^ state->d;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
-            state->cc.p = parity2(state->a, 8);
+            state->cc.p = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1545,7 +1530,7 @@ emulate(State *state)
             state->a = state->a ^ state->e;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
-            state->cc.p = parity2(state->a, 8);
+            state->cc.p = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1555,7 +1540,7 @@ emulate(State *state)
             state->a = state->a ^ state->h;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
-            state->cc.p = parity2(state->a, 8);
+            state->cc.p = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1565,7 +1550,7 @@ emulate(State *state)
             state->a = state->a ^ state->l;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
-            state->cc.p = parity2(state->a, 8);
+            state->cc.p = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1577,7 +1562,7 @@ emulate(State *state)
                 state->a = state->a ^ state->memory[target_addr];
                 state->cc.z = (state->a == 0);
                 state->cc.s = ((state->a & 0x80) != 0);
-                state->cc.p = parity2(state->a, 8);
+                state->cc.p = parity(state->a);
                 state->cc.cy = 0;
                 state->pc++;
             }
@@ -1588,7 +1573,7 @@ emulate(State *state)
             state->a = state->a ^ state->a;
             state->cc.z = (state->a == 0);
             state->cc.s = ((state->a & 0x80) != 0);
-            state->cc.p = parity2(state->a, 8);
+            state->cc.p = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1598,7 +1583,7 @@ emulate(State *state)
             state->a     = state->a | state->b;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1608,7 +1593,7 @@ emulate(State *state)
             state->a     = state->a | state->c;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1618,7 +1603,7 @@ emulate(State *state)
             state->a     = state->a | state->d;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1628,7 +1613,7 @@ emulate(State *state)
             state->a     = state->a | state->e;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1638,7 +1623,7 @@ emulate(State *state)
             state->a     = state->a | state->h;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1648,7 +1633,7 @@ emulate(State *state)
             state->a     = state->a | state->l;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1660,7 +1645,7 @@ emulate(State *state)
                 state->a     = state->a | state->memory[target_addr];
                 state->cc.z  = (state->a == 0);
                 state->cc.s  = ((state->a & 0x80) != 0);
-                state->cc.p  = parity2(state->a, 8);
+                state->cc.p  = parity(state->a);
                 state->cc.cy = 0;
                 state->pc++;
             }
@@ -1671,7 +1656,7 @@ emulate(State *state)
             state->a     = state->a | state->a;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->cc.cy = 0;
             state->pc++;
             break;
@@ -1682,7 +1667,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->b;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->cc.cy = (res > 0xff);
                 state->pc++;
             }
@@ -1694,7 +1679,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->c;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->cc.cy = (res > 0xff);
                 state->pc++;
             }
@@ -1706,7 +1691,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->d;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->cc.cy = (res > 0xff);
                 state->pc++;
             }
@@ -1718,7 +1703,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->e;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->cc.cy = (res > 0xff);
                 state->pc++;
             }
@@ -1730,7 +1715,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->h;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->cc.cy = (res > 0xff);
                 state->pc++;
             }
@@ -1742,7 +1727,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->l;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->cc.cy = (res > 0xff);
                 state->pc++;
             }
@@ -1755,7 +1740,7 @@ emulate(State *state)
                 uint16_t res         = state->a - state->memory[target_addr];
                 state->cc.z          = (res == 0);
                 state->cc.s          = ((res & 0x80) != 0);
-                state->cc.p          = parity2(res, 8);
+                state->cc.p          = parity(res);
                 state->cc.cy         = (res > 0xff);
                 state->pc++;
             }
@@ -1767,7 +1752,7 @@ emulate(State *state)
                 uint16_t res = state->a - state->a;
                 state->cc.z = (res == 0);
                 state->cc.s = ((res & 0x80) != 0);
-                state->cc.p = parity2(res, 8);
+                state->cc.p = parity(res);
                 state->cc.cy = (res > 0xff);
                 state->pc++;
             }
@@ -1778,12 +1763,18 @@ emulate(State *state)
             if (state->cc.z == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
-                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
-                printf("Not taken\n"); // debug
             }
+            break;
+
+        // POP B
+        case 0xc1:
+            state->c   = state->memory[state->sp];
+            state->b  = state->memory[state->sp+1];
+            state->sp += 2;
+            state->pc++;
             break;
 
         // JNZ addr
@@ -1796,8 +1787,6 @@ emulate(State *state)
 
         // JMP addr
         case 0xc3:
-            // Move third byte 8 bits to the right
-            // bitwise or to add the second byte to the lower space
             state->pc = (opcode[2]) << 8 | opcode[1];
             break;
 
@@ -1805,20 +1794,24 @@ emulate(State *state)
         case 0xc4:
             {
                 if (state->cc.z == 0) {
-                    // Push ret addr onto stack
                     uint16_t ret_addr = state->pc + 2;
-                    // Push MSB first
                     state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
                     state->memory[state->sp-2] = (ret_addr & 0xff);
-                    // Stack grows towards lower addresses
                     state->sp = state->sp - 2;
-                    // Transfer execution to subrutine
                     state->pc = (opcode[2] << 8) | opcode[1];
                     }
                 else {
                     state->pc +=3;
                 }
             }
+            break;
+
+        // PUSH B
+        case 0xc5:
+            state->memory[state->sp-1] = state->b;
+            state->memory[state->sp-2] = state->c;
+            state->sp                  = state->sp - 2;
+            state->pc++;
             break;
 
         // ADI D8
@@ -1829,27 +1822,21 @@ emulate(State *state)
                 state->cc.cy = (res > 0xff);
                 state->cc.z  = ((res & 0xff) == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = parity2(res, 8);
+                state->cc.p  = parity(res);
 
                 state->a     = (uint8_t) res;
                 state->pc   += 2;
             }
             break;
 
-       // RZ
-       case 0xc8:
+        // RZ
+        case 0xc8:
             if (state->cc.z == 1) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
-                printf("Taken\n"); // debug
-
-                // Debug
-                print_state(state);
-                exit(0);
             }
             else {
                 state->pc++;
-                printf("Not taken\n"); // debug
             }
             break;
 
@@ -1861,26 +1848,24 @@ emulate(State *state)
 
         // JZ addr
         case 0xca:
-            if (state->cc.z == 1)
+            if (state->cc.z == 1) {
                 state->pc = (opcode[2] << 8) | opcode[1];
-            else
+            }
+            else {
                 state->pc += 3;
+            }
             break;
 
         // CZ addr
         case 0xcc:
             {
                 if (state->cc.z == 1) {
-                    // Push ret addr onto stack
                     uint16_t ret_addr = state->pc + 2;
-                    // Push MSB first
                     state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
                     state->memory[state->sp-2] = (ret_addr & 0xff);
-                    // Stack grows towards lower addresses
                     state->sp = state->sp - 2;
-                    // Transfer execution to subrutine
                     state->pc = (opcode[2] << 8) | opcode[1];
-                    }
+                }
                 else {
                     state->pc +=3;
                 }
@@ -1894,7 +1879,7 @@ emulate(State *state)
             state->cc.z  = ((res & 0xff) == 0);
             state->cc.s  = ((res & 0x80) != 0);
             state->cc.cy = (res > 0xff);
-            state->cc.p  = parity2(res, 8);
+            state->cc.p  = parity(res);
             state->a     = (uint8_t) res;
             state->pc   += 2;
             }
@@ -1923,29 +1908,31 @@ emulate(State *state)
             else
 #endif
             {
-            // Push ret addr onto stack
             uint16_t ret_addr = state->pc + 2;
-            // Push MSB first
             state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
             state->memory[state->sp-2] = (ret_addr & 0xff);
-            // Stack grows towards lower addresses
             state->sp = state->sp - 2;
-            // Transfer execution to subrutine
             state->pc = (opcode[2] << 8) | opcode[1];
             }
             break;
 
-       // RNC
-       case 0xd0:
+        // RNC
+        case 0xd0:
             if (state->cc.cy == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
-                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
-                printf("Not taken\n"); // debug
             }
+            break;
+
+        // POP D
+        case 0xd1:
+            state->e   = state->memory[state->sp];
+            state->d   = state->memory[state->sp+1];
+            state->sp += 2;
+            state->pc++;
             break;
 
         // JNC addr
@@ -1967,14 +1954,10 @@ emulate(State *state)
         case 0xd4:
             {
                 if (state->cc.cy == 0) {
-                    // Push ret addr onto stack
                     uint16_t ret_addr = state->pc + 2;
-                    // Push MSB first
                     state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
                     state->memory[state->sp-2] = (ret_addr & 0xff);
-                    // Stack grows towards lower addresses
                     state->sp = state->sp - 2;
-                    // Transfer execution to subrutine
                     state->pc = (opcode[2] << 8) | opcode[1];
                     }
                 else {
@@ -1984,7 +1967,6 @@ emulate(State *state)
             break;
 
         // PUSH D
-        // PUSH register pair DE
         case 0xd5:
             state->memory[state->sp-1] = state->d;
             state->memory[state->sp-2] = state->e;
@@ -1999,22 +1981,20 @@ emulate(State *state)
                 state->cc.cy = (state->a < opcode[1]);
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->a     = res;
                 state->pc   += 2;
             }
             break;
 
-       // RC
-       case 0xd8:
+        // RC
+        case 0xd8:
             if (state->cc.cy == 1) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
-                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
-                printf("Not taken\n"); // debug
             }
             break;
 
@@ -2030,14 +2010,10 @@ emulate(State *state)
         case 0xdc:
             {
                 if (state->cc.cy == 1) {
-                    // Push ret addr onto stack
                     uint16_t ret_addr = state->pc + 2;
-                    // Push MSB first
                     state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
                     state->memory[state->sp-2] = (ret_addr & 0xff);
-                    // Stack grows towards lower addresses
                     state->sp = state->sp - 2;
-                    // Transfer execution to subrutine
                     state->pc = (opcode[2] << 8) | opcode[1];
                     }
                 else {
@@ -2053,45 +2029,60 @@ emulate(State *state)
                 state->cc.cy = (state->a < (opcode[1] + state->cc.cy));
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->a     = res;
                 state->pc += 2;
             }
             break;
 
-       // RPO
-       case 0xe0:
+        // RPO
+        case 0xe0:
             if (state->cc.p == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
-                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
-                printf("Not taken\n"); // debug
             }
             break;
 
-       // JPO addr
-       case 0xe2:
+        // POP H
+        case 0xe1:
+            state->l   = state->memory[state->sp];
+            state->h   = state->memory[state->sp+1];
+            state->sp += 2;
+            state->pc++;
+            break;
+
+        // JPO addr
+        case 0xe2:
             if (state->cc.p == 0)
                 state->pc = (opcode[2] << 8) | opcode[1];
             else
                 state->pc += 3;
             break;
 
+        // XTHL
+        case 0xe3:
+            {
+                uint8_t l_tmp              = state->l;
+                uint8_t h_tmp              = state->h;
+                state->l                   = state->memory[state->sp];
+                state->h                   = state->memory[state->sp+1];
+                state->memory[state->sp]   = l_tmp;
+                state->memory[state->sp+1] = h_tmp;
+                state->pc++;
+            }
+            break;
+
         // CPO addr
         case 0xe4:
             {
                 if (state->cc.p == 0) {
-                    // Push ret addr onto stack
                     uint16_t ret_addr = state->pc + 2;
-                    // Push MSB first
                     state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
                     state->memory[state->sp-2] = (ret_addr & 0xff);
-                    // Stack grows towards lower addresses
                     state->sp = state->sp - 2;
-                    // Transfer execution to subrutine
                     state->pc = (opcode[2] << 8) | opcode[1];
                     }
                 else {
@@ -2100,19 +2091,26 @@ emulate(State *state)
             }
             break;
 
+        // PUSH H
+        case 0xe5:
+            state->memory[state->sp-1] = state->h;
+            state->memory[state->sp-2] = state->l;
+            state->sp                  = state->sp - 2;
+            state->pc++;
+            break;
 
-       // ANI D8
-       case 0xe6:
+        // ANI D8
+        case 0xe6:
             state->a     = state->a & opcode[1];
             state->cc.cy = 0;
             state->cc.z  = (state->a == 0);
             state->cc.s  = ((state->a & 0x80) != 0);
-            state->cc.p  = parity2(state->a, 8);
+            state->cc.p  = parity(state->a);
             state->pc   += 2;
             break;
 
-       // RPE
-       case 0xe8:
+        // RPE
+        case 0xe8:
             if (state->cc.p == 1) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
@@ -2122,8 +2120,13 @@ emulate(State *state)
             }
             break;
 
-       // JPE addr
-       case 0xea:
+        // PCHL
+        case 0xe9:
+            state->pc = (state->h << 8) | state->l;
+            break;
+
+        // JPE addr
+        case 0xea:
             if (state->cc.p == 1)
                 state->pc = (opcode[2] << 8) | opcode[1];
             else
@@ -2134,14 +2137,10 @@ emulate(State *state)
         case 0xec:
             {
                 if (state->cc.p == 1) {
-                    // Push ret addr onto stack
                     uint16_t ret_addr = state->pc + 2;
-                    // Push MSB first
                     state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
                     state->memory[state->sp-2] = (ret_addr & 0xff);
-                    // Stack grows towards lower addresses
                     state->sp = state->sp - 2;
-                    // Transfer execution to subrutine
                     state->pc = (opcode[2] << 8) | opcode[1];
                     }
                 else {
@@ -2150,8 +2149,8 @@ emulate(State *state)
             }
             break;
 
-       // XCHG
-       case 0xeb:
+        // XCHG
+        case 0xeb:
             {
                 uint8_t tmp1 = state->d;
                 uint8_t tmp2 = state->e;
@@ -2163,53 +2162,57 @@ emulate(State *state)
             }
             break;
 
-       // XRI D8
-       case 0xee:
+        // XRI D8
+        case 0xee:
             {
                 uint8_t res  = state->a ^ opcode[1];
                 state->cc.cy = 0;
                 state->cc.z  = (res == 0);
                 state->cc.s  = ((res & 0x80) != 0);
-                state->cc.p  = (parity2(res, 8));
+                state->cc.p  = (parity(res));
                 state->a     = res;
                 state->pc += 2;
             }
             break;
 
-       // RP
-       case 0xf0:
+        // RP
+        case 0xf0:
             if (state->cc.s == 0) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
-                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
-                printf("Not taken\n"); // debug
             }
             break;
 
-       // JP addr
-       case 0xf2:
-            if (state->cc.s == 0)
+        // POP PSW
+        case 0xf1:
+            *(uint8_t*)&state->cc = state->memory[state->sp];
+            state->a              = state->memory[state->sp+1];
+            state->sp            += 2;
+            state->pc++;
+            break;
+
+        // JP addr
+        case 0xf2:
+            if (state->cc.s == 0) {
                 state->pc = (opcode[2] << 8) | opcode[1];
-            else
+            }
+            else {
                 state->pc += 3;
+            }
             break;
 
         // CP addr
         case 0xf4:
             {
                 if (state->cc.s == 0) {
-                    // Push ret addr onto stack
-                    uint16_t ret_addr = state->pc + 2;
-                    // Push MSB first
+                    uint16_t ret_addr          = state->pc + 2;
                     state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
                     state->memory[state->sp-2] = (ret_addr & 0xff);
-                    // Stack grows towards lower addresses
-                    state->sp = state->sp - 2;
-                    // Transfer execution to subrutine
-                    state->pc = (opcode[2] << 8) | opcode[1];
+                    state->sp                  = state->sp - 2;
+                    state->pc                  = (opcode[2] << 8) | opcode[1];
                     }
                 else {
                     state->pc +=3;
@@ -2217,34 +2220,46 @@ emulate(State *state)
             }
             break;
 
-       // ORI D8
-       case 0xf6:
+        // PUSH PSW
+        case 0xf5:
+            state->memory[state->sp-1] = state->a;
+            state->memory[state->sp-2] = *(uint8_t*)&state->cc; // Push flag-struct as byte
+            state->sp                  = state->sp - 2;
+            state->pc++;
+            break;
+
+        // ORI D8
+        case 0xf6:
             {
-            uint8_t res  = state->a | opcode[1];
-            state->cc.cy = 0;
-            state->cc.z  = (res == 0);
-            state->cc.s  = ((res & 0x80) != 0);
-            state->cc.p  = (parity2(res, 8));
-            state->a     = res;
-            state->pc += 2;
+                uint8_t res  = state->a | opcode[1];
+                state->cc.cy = 0;
+                state->cc.z  = (res == 0);
+                state->cc.s  = ((res & 0x80) != 0);
+                state->cc.p  = (parity(res));
+                state->a     = res;
+                state->pc += 2;
             }
             break;
 
-       // RM
-       case 0xf8:
+        // RM
+        case 0xf8:
             if (state->cc.s == 1) {
                 state->pc  = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
                 state->sp += 3;
-                printf("Taken\n"); // debug
             }
             else {
                 state->pc++;
-                printf("Not taken\n"); // debug
             }
             break;
 
-       // JM addr
-       case 0xfa:
+        // SPHL
+        case 0xf9:
+            state->sp = (state->h << 8) | state->l;
+            state->pc++;
+            break;
+
+        // JM addr
+        case 0xfa:
             if (state->cc.s == 1)
                 state->pc = (opcode[2] << 8) | opcode[1];
             else
@@ -2252,7 +2267,6 @@ emulate(State *state)
             break;
 
         // EI
-        // Enable interrupts
         case 0xfb:
             state->int_enable = 1;
             state->pc++;
@@ -2262,14 +2276,10 @@ emulate(State *state)
         case 0xfc:
             {
                 if (state->cc.s == 1) {
-                    // Push ret addr onto stack
                     uint16_t ret_addr = state->pc + 2;
-                    // Push MSB first
                     state->memory[state->sp-1] = (ret_addr >> 8) & 0xff;
                     state->memory[state->sp-2] = (ret_addr & 0xff);
-                    // Stack grows towards lower addresses
                     state->sp = state->sp - 2;
-                    // Transfer execution to subrutine
                     state->pc = (opcode[2] << 8) | opcode[1];
                     }
                 else {
@@ -2282,10 +2292,10 @@ emulate(State *state)
         case 0xfe:
             {
                 uint16_t res = state->a - opcode[1];
-                state->cc.z  = (state->a == opcode[1]); // 1 if accumulator and immidiate are equal
+                state->cc.z  = (state->a == opcode[1]);
                 state->cc.s  = ((res & 0x80) != 0);
                 state->cc.cy = (res > 0xff);
-                state->cc.p  = parity2(res, 8);
+                state->cc.p  = parity(res);
                 state->pc   += 2;
             }
             break;
@@ -2311,26 +2321,30 @@ dump_memory(State *state, size_t mem_start_int, size_t amount_int)
 int
 main(int argc, char** argv)
 {
+    /**
+    * Special config for running cpudiag.bin test:
+    * State *state = calloc(sizeof state, 1);
+    *
+    * Offset test binary 0x100 instructions
+    * state->memory_size = read_rom(&state->memory, argv[1], 0x100);
+    *
+    * Insert a JMP 0x100 as first instruction
+    * state->memory[0] = 0xc3;
+    * state->memory[1] = 0;
+    * state->memory[2] = 0x01;
+    *
+    * Fix stack pointer from 0x6ad to 0x7ad
+    * state->memory[368] = 0x7;
+    *
+    * Skip DAA test
+    * state->memory[0x59c] = 0xc3; // JMP
+    * state->memory[0x59d] = 0xc2;
+    * state->memory[0x59e] = 0x05;
+    */
+
     State *state = calloc(sizeof state, 1);
+    state->memory_size = read_rom(&state->memory, argv[1], 0);
 
-    // Read rom with an offset of 0x100 bytes
-    state->memory_size = read_rom(&state->memory, "./invaders/test.com", 0x100);
-
-    // For testing
-    // Insert a JMP 0x100 as first instruction
-    state->memory[0] = 0xc3;
-    state->memory[1] = 0;
-    state->memory[2] = 0x01;
-
-    //// Fix stackt pointer from 0x6ad to 0x7ad
-    state->memory[368] = 0x7;
-
-    // Skip DAA test
-    state->memory[0x59c] = 0xc3; // JMP
-    state->memory[0x59d] = 0xc2;
-    state->memory[0x59e] = 0x05;
-
-    // Initial information
     printf("\n\n*******************************\n");
     printf("ENTER to execute next instruction\n");
     printf("d to dump memory\n");
@@ -2347,62 +2361,65 @@ main(int argc, char** argv)
         dissas_curr_inst(state);
         emulate(state);
 
-        if (argc != 1) {
+        if (argv[2]) {
+            if (strcmp(argv[2], "debug") == 0) {
 
-            // Ask if user wants to dump memory
-            uint16_t mem_start_int;
-            uint16_t amount_int;
-            size_t n = 64;
-            char* junk = calloc(n, sizeof(char));
+                // Ask if user wants to dump memory
+                uint16_t mem_start_int;
+                uint16_t amount_int;
+                size_t n = 64;
+                char* junk = calloc(n, sizeof(char));
 
-            int dump = fgetc(stdin);
+                int dump = fgetc(stdin);
 
-            if (dump == 0x64) {
+                if (dump == 0x64) {
 
-                // Ask for the address range to dump
-                printf("Start print mem at 0x");
-                char* mem_start = calloc(n, sizeof(char));
-                getline(&junk, &n, stdin); // Clear stdin
-                getline(&mem_start, &n, stdin);
+                    // Ask for the address range to dump
+                    printf("Start print mem at 0x");
+                    char* mem_start = calloc(n, sizeof(char));
+                    getline(&junk, &n, stdin); // Clear stdin
+                    getline(&mem_start, &n, stdin);
 
-                printf("Amount: ");
-                char* amount = calloc(n, sizeof(char));
-                getline(&amount, &n, stdin);
+                    printf("Amount: ");
+                    char* amount = calloc(n, sizeof(char));
+                    getline(&amount, &n, stdin);
 
-                mem_start_int = strtol(mem_start, NULL, 16);
-                amount_int    = strtol(amount, NULL, 10);
+                    mem_start_int = strtol(mem_start, NULL, 16);
+                    amount_int    = strtol(amount, NULL, 10);
 
-                free(mem_start);
-                free(amount);
+                    free(mem_start);
+                    free(amount);
 
-                dump_memory(state, mem_start_int, amount_int);
+                    dump_memory(state, mem_start_int, amount_int);
 
-                // Ask if user want to keep printing the same memory each intsruction
-                printf("Keep printing? [y/n]: ");
-                int keep_printing_answer = fgetc(stdin);
+                    // Ask if user want to keep printing the same memory each intsruction
+                    printf("Keep printing? [y/n]: ");
+                    int keep_printing_answer = fgetc(stdin);
 
-                if (keep_printing_answer == 0x79) {
-                    print_memory = true;
-                    continue;
+                    if (keep_printing_answer == 0x79) {
+                        print_memory = true;
+                        continue;
+                    }
+                    else {
+                        print_memory = false;
+                        continue;
+                    }
+                    getline(&junk, &n, stdin); // Clear stdin
                 }
-                else {
-                    print_memory = false;
-                    continue;
+                else if (dump == 0x71) {
+                    free(state->memory);
+                    free(state);
+                    exit(0);
                 }
-                getline(&junk, &n, stdin); // Clear stdin
-            }
-            else if (dump == 0x71) {
-                free(state->memory);
-                free(state);
-                exit(0);
-            }
 
-            if (print_memory) {
-                dump_memory(state, mem_start_int, amount_int);
+                if (print_memory) {
+                    dump_memory(state, mem_start_int, amount_int);
+                }
+            free(junk);
             }
         }
     }
     free(state->memory);
-
+    free(state);
     return 0;
 }

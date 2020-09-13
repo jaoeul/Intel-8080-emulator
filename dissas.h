@@ -1,7 +1,7 @@
 #ifndef DISSAS_H
 #define DISSAS_H
 
-#include "intel8080.h"
+#include "emu.h"
 
 size_t read_rom(uint8_t **buffer, char *rom_filename, int offset);
 

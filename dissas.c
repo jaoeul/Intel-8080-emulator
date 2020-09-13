@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 #include "dissas.h"
-#include "intel8080.h"
+#include "emu.h"
 
 /*  Read file into buffer
  *  Provide offset to insert n amount of NOPS before the ROM
@@ -26,7 +26,6 @@ read_rom(uint8_t **buffer, char *rom_filename, int offset)
     }
 
     fread(*buffer + offset, filelen, 1, fileptr);
-
     fclose(fileptr);
 
     return filelen;
